@@ -172,12 +172,15 @@ else:
     # Card Reports Section
     with report_tab:
         st.header('🗂️ تقارير البطاقات')
-        # Upload
+        # Upload (accept xlsx and csv)
         if can_up:
-            uploaded = st.file_uploader('📁 رفع تقرير البطاقات', type=['xlsx'])
+            uploaded = st.file_uploader('📁 رفع تقرير البطاقات', type=['xlsx','csv'])
             if uploaded:
                 try:
-                    df_new = pd.read_excel(uploaded, dtype=str)
+                    if uploaded.name.lower().endswith('.csv'):
+                        df_new = pd.read_csv(uploaded, dtype=str)
+                    else:
+                        df_new = pd.read_excel(uploaded, dtype=str)
                     df_new['Load Date'] = datetime.today().strftime('%Y-%m-%d')
                     if os.path.exists(master_file):
                         df_old = pd.read_excel(master_file, dtype=str)
