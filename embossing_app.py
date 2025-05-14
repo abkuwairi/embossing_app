@@ -162,9 +162,13 @@ else:
             search = st.text_input('🔍 بحث عام')
             if search:
                 df_all = df_all[df_all.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
-            if not df_all['Issuance Date'].isna().all():
-                start, end = st.date_input('من تاريخ'), st.date_input('إلى تاريخ')
-                df_all = df_all[(df_all['Issuance Date']>=start)&(df_all['Issuance Date']<=end)]
+                        if not df_all['Issuance Date'].isna().all():
+                # Date range filter with proper datetime conversion
+                min_iss, max_iss = df_all['Issuance Date'].min(), df_all['Issuance Date'].max()
+                start_date = st.date_input('📆 من تاريخ', min_value=min_iss, max_value=max_iss, value=min_iss)
+                end_date = st.date_input('📆 إلى تاريخ', min_value=min_iss, max_value=max_iss, value=max_iss)
+                start_ts, end_ts = pd.to_datetime(start_date), pd.to_datetime(end_date)
+                df_all = df_all[(df_all['Issuance Date'] >= start_ts) & (df_all['Issuance Date'] <= end_ts)]
 
             # Show per branch
             branches = sorted(df_all['Delivery Branch Code'].unique())
