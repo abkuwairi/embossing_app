@@ -7,7 +7,6 @@ import streamlit_authenticator as stauth
 from datetime import datetime
 
 # Paths
-
 data_dir = 'data'
 cred_file = os.path.join(data_dir, 'credentials.json')
 master_file = os.path.join(data_dir, 'master_data.xlsx')
@@ -41,8 +40,17 @@ def load_credentials():
 credentials = load_credentials()
 
 # Prepare authenticator
-active_users = {u: {'name':info['name'], 'password':info['password']} for u,info in credentials['usernames'].items() if info.get('is_active')}
-authenticator = stauth.Authenticate({'usernames': active_users}, cookie_name='embossing_app_cookie', key='abcd1234abcd1234abcd1234abcd1234', cookie_expiry_days=1)
+active_users = {
+    u: {'name': info['name'], 'password': info['password']}
+    for u, info in credentials['usernames'].items()
+    if info.get('is_active')
+}
+authenticator = stauth.Authenticate(
+    {'usernames': active_users},
+    cookie_name='embossing_app_cookie',
+    key='abcd1234abcd1234abcd1234abcd1234',
+    cookie_expiry_days=1
+)
 
 # Login UI
 name, auth_status, username = authenticator.login('🔐 تسجيل الدخول', 'main')
@@ -60,15 +68,15 @@ else:
     can_dn = role in ['admin', 'management', 'uploader']
 
     st.title('📋 نظام تحميل ومتابعة بطاقات Embossing')
-    # Main tabs: only admin gets user management
-    if role == 'admin':
+    # Main tabs: admin and management get user management
+    if role in ['admin', 'management']:
         main_tabs = st.tabs(['👥 إدارة المستخدمين', '🗂️ تقارير البطاقات'])
         um_tab, report_tab = main_tabs
     else:
         report_tab = st.tabs(['🗂️ تقارير البطاقات'])[0]
         um_tab = None
 
-    # User Management (admin only)
+    # User Management (admin and management)
     if um_tab:
         with um_tab:
             st.header('👥 إدارة المستخدمين')
@@ -79,6 +87,7 @@ else:
                 df_disp = df_users[['name', 'email', 'phone', 'branch_code', 'branch_name', 'role', 'is_active']]
                 df_disp.index.name = 'username'
                 st.dataframe(df_disp)
+
             # Add user
             with tabs[1]:
                 st.subheader('إضافة مستخدم جديد')
@@ -91,12 +100,17 @@ else:
                     br_name = st.text_input('اسم الفرع')
                     pwd = st.text_input('كلمة المرور', type='password')
                     is_active = st.checkbox('مفعل', value=True)
-                    # Admin can assign any role
-                    roles = ['admin', 'management', 'viewer', 'uploader']
+                    # Roles based on current role
+                    if role == 'admin':
+                        roles = ['admin', 'management', 'viewer', 'uploader']
+                    else:  # management
+                        roles = ['management', 'viewer', 'uploader']
                     selected_role = st.selectbox('نوع المستخدم', roles)
                     if st.form_submit_button('إضافة'):
                         if new_id in credentials['usernames']:
                             st.error('المستخدم موجود بالفعل')
+                        elif selected_role == 'admin' and role != 'admin':
+                            st.error('غير مسموح بإنشاء مستخدم إدمن')
                         else:
                             credentials['usernames'][new_id] = {
                                 'name': full_name,
@@ -111,6 +125,7 @@ else:
                             with open(cred_file, 'w') as f:
                                 json.dump(credentials, f, indent=4)
                             st.success(f'تم إضافة المستخدم {new_id}')
+
             # Edit/Deactivate user
             with tabs[2]:
                 st.subheader('تعديل/حظر مستخدم')
@@ -124,28 +139,36 @@ else:
                     bc2 = st.text_input('كود الفرع', value=info['branch_code'])
                     bn2 = st.text_input('اسم الفرع', value=info['branch_name'])
                     active2 = st.checkbox('مفعل', value=info['is_active'])
-                    # Admin can change to any role
-                    role_opts = ['admin', 'management', 'viewer', 'uploader']
+                    # Role options based on current role
+                    if role == 'admin':
+                        role_opts = ['admin', 'management', 'viewer', 'uploader']
+                    else:  # management
+                        role_opts = ['management', 'viewer', 'uploader']
+                    if info['role'] not in role_opts:
+                        role_opts.insert(0, info['role'])
                     sel_role2 = st.selectbox('نوع المستخدم', role_opts, index=role_opts.index(info['role']))
                     cpwd = st.checkbox('تغيير كلمة مرور')
                     if cpwd:
                         new_pwd = st.text_input('كلمة المرور الجديدة', type='password')
                     if st.form_submit_button('حفظ'):
-                        info.update({
-                            'name': fn2,
-                            'email': em2,
-                            'phone': ph2,
-                            'branch_code': bc2,
-                            'branch_name': bn2,
-                            'role': sel_role2,
-                            'is_active': active2
-                        })
-                        if cpwd and new_pwd:
-                            info['password'] = stauth.Hasher([new_pwd]).generate()[0]
-                        credentials['usernames'][sel_user] = info
-                        with open(cred_file, 'w') as f:
-                            json.dump(credentials, f, indent=4)
-                        st.success('تم حفظ التعديلات')
+                        if sel_role2 == 'admin' and role != 'admin':
+                            st.error('غير مسموح بتعيين دور إدمن')
+                        else:
+                            info.update({
+                                'name': fn2,
+                                'email': em2,
+                                'phone': ph2,
+                                'branch_code': bc2,
+                                'branch_name': bn2,
+                                'role': sel_role2,
+                                'is_active': active2
+                            })
+                            if cpwd and new_pwd:
+                                info['password'] = stauth.Hasher([new_pwd]).generate()[0]
+                            credentials['usernames'][sel_user] = info
+                            with open(cred_file, 'w') as f:
+                                json.dump(credentials, f, indent=4)
+                            st.success('تم حفظ التعديلات')
 
     # Card Reports Section
     with report_tab:
@@ -173,7 +196,7 @@ else:
             if 'Delivery Branch Code' not in df_all.columns:
                 st.error(f"عمود 'Delivery Branch Code' غير موجود. الأعمدة المتاحة: {list(df_all.columns)}")
             else:
-                df_all['Delivery Branch Code'] = df_all['Delivery Branch Code'].str.strip()  
+                df_all['Delivery Branch Code'] = df_all['Delivery Branch Code'].str.strip()
                 df_all = df_all.drop_duplicates(subset=['Unmasked Card Number', 'Account Number'])
                 df_all['Issuance Date'] = pd.to_datetime(df_all['Issuance Date'], errors='coerce', dayfirst=True)
                 term = st.text_input('🔍 بحث')
