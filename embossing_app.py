@@ -158,12 +158,13 @@ else:
             if bad_dates > 0:
                 st.warning(f'فشل تحويل {bad_dates} تواريخ.')
 
-            # Filters
+                        # Filters
             search = st.text_input('🔍 بحث عام')
             if search:
                 df_all = df_all[df_all.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
-                        if not df_all['Issuance Date'].isna().all():
-                # Date range filter with proper datetime conversion
+            
+            # Date range filter with proper datetime conversion
+            if not df_all['Issuance Date'].isna().all():
                 min_iss, max_iss = df_all['Issuance Date'].min(), df_all['Issuance Date'].max()
                 start_date = st.date_input('📆 من تاريخ', min_value=min_iss, max_value=max_iss, value=min_iss)
                 end_date = st.date_input('📆 إلى تاريخ', min_value=min_iss, max_value=max_iss, value=max_iss)
@@ -183,3 +184,4 @@ else:
                         st.download_button('⬇️ تحميل', buf, f'{br}.xlsx')
 
     # End of app
+
