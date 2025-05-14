@@ -67,7 +67,11 @@ else:
     can_up = role in ['admin', 'management', 'uploader']
     can_dn = role in ['admin', 'management', 'uploader']
 
-    st.title('📋 نظام تحميل ومتابعة بطاقات Embossing')
+    # Display large logo and new title
+    if os.path.exists('logo.png'):
+        st.image('logo.png', use_column_width=True)
+    st.title('🚀 منظومة إدارة البطاقات')
+
     # Main tabs: admin and management get user management
     if role in ['admin', 'management']:
         main_tabs = st.tabs(['👥 إدارة المستخدمين', '🗂️ تقارير البطاقات'])
@@ -100,10 +104,9 @@ else:
                     br_name = st.text_input('اسم الفرع')
                     pwd = st.text_input('كلمة المرور', type='password')
                     is_active = st.checkbox('مفعل', value=True)
-                    # Roles based on current role
                     if role == 'admin':
                         roles = ['admin', 'management', 'viewer', 'uploader']
-                    else:  # management
+                    else:
                         roles = ['management', 'viewer', 'uploader']
                     selected_role = st.selectbox('نوع المستخدم', roles)
                     if st.form_submit_button('إضافة'):
@@ -139,10 +142,9 @@ else:
                     bc2 = st.text_input('كود الفرع', value=info['branch_code'])
                     bn2 = st.text_input('اسم الفرع', value=info['branch_name'])
                     active2 = st.checkbox('مفعل', value=info['is_active'])
-                    # Role options based on current role
                     if role == 'admin':
                         role_opts = ['admin', 'management', 'viewer', 'uploader']
-                    else:  # management
+                    else:
                         role_opts = ['management', 'viewer', 'uploader']
                     if info['role'] not in role_opts:
                         role_opts.insert(0, info['role'])
@@ -151,24 +153,21 @@ else:
                     if cpwd:
                         new_pwd = st.text_input('كلمة المرور الجديدة', type='password')
                     if st.form_submit_button('حفظ'):
-                        if sel_role2 == 'admin' and role != 'admin':
-                            st.error('غير مسموح بتعيين دور إدمن')
-                        else:
-                            info.update({
-                                'name': fn2,
-                                'email': em2,
-                                'phone': ph2,
-                                'branch_code': bc2,
-                                'branch_name': bn2,
-                                'role': sel_role2,
-                                'is_active': active2
-                            })
-                            if cpwd and new_pwd:
-                                info['password'] = stauth.Hasher([new_pwd]).generate()[0]
-                            credentials['usernames'][sel_user] = info
-                            with open(cred_file, 'w') as f:
-                                json.dump(credentials, f, indent=4)
-                            st.success('تم حفظ التعديلات')
+                        info.update({
+                            'name': fn2,
+                            'email': em2,
+                            'phone': ph2,
+                            'branch_code': bc2,
+                            'branch_name': bn2,
+                            'role': sel_role2,
+                            'is_active': active2
+                        })
+                        if cpwd and new_pwd:
+                            info['password'] = stauth.Hasher([new_pwd]).generate()[0]
+                        credentials['usernames'][sel_user] = info
+                        with open(cred_file, 'w') as f:
+                            json.dump(credentials, f, indent=4)
+                        st.success('تم حفظ التعديلات')
 
     # Card Reports Section
     with report_tab:
@@ -211,7 +210,7 @@ else:
                 for br in sorted(df_all['Delivery Branch Code'].unique()):
                     df_br = df_all[df_all['Delivery Branch Code'] == br]
                     with st.expander(f'📌 فرع {br}'):
-                        st.dataframe(df_br, use_container_width=True)
+                        st.dataframe(df_br, use_column_width=True)
                         if can_dn:
                             buf = io.BytesIO()
                             with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
