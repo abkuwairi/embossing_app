@@ -59,6 +59,12 @@ if auth_status is False:
 elif auth_status is None:
     st.warning('👈 الرجاء تسجيل الدخول للاستمرار')
 else:
+    # Verify username exists in credentials
+    if username in credentials['usernames']:
+        st.sidebar.success(f"مرحباً {credentials['usernames'][username]['name']}")
+    else:
+        st.sidebar.error("خطأ: اسم المستخدم غير موجود.")
+    authenticator.logout('تسجيل الخروج', 'sidebar')
     st.sidebar.success(f"مرحباً {credentials['usernames'][username]['name']}")
     authenticator.logout('تسجيل الخروج', 'sidebar')
 
