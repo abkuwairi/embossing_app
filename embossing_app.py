@@ -69,7 +69,7 @@ else:
 
     # Display large logo and new title
     if os.path.exists('logo.png'):
-        st.image('logo.png', use_column_width=True)
+        st.image('logo.png', use_container_width=True)
     st.title('🚀 منظومة إدارة البطاقات')
 
     # Main tabs: admin and management get user management
