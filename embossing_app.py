@@ -7,6 +7,7 @@ import streamlit_authenticator as stauth
 from datetime import datetime
 
 # Paths
+
 data_dir = 'data'
 cred_file = os.path.join(data_dir, 'credentials.json')
 master_file = os.path.join(data_dir, 'master_data.xlsx')
@@ -50,15 +51,17 @@ if auth_status is False:
 elif auth_status is None:
     st.warning('👈 الرجاء تسجيل الدخول للاستمرار')
 else:
-    st.sidebar.success(f'مرحباً {credentials['usernames'][username]['name']}')
+    # Greet user
+    st.sidebar.success(f"مرحباً {credentials['usernames'][username]['name']}")
     authenticator.logout('تسجيل الخروج', 'sidebar')
+
     # Determine role and permissions
     role = credentials['usernames'][username].get('role', 'viewer')
     can_up = role in ['admin', 'management', 'uploader']
     can_dn = role in ['admin', 'management', 'uploader']
 
     st.title('📋 نظام تحميل ومتابعة بطاقات Embossing')
-    # Main tabs: User Management (if allowed) and Card Reports
+    # Main tabs
     if role in ['admin', 'management']:
         main_tabs = st.tabs(['👥 إدارة المستخدمين', '🗂️ تقارير البطاقات'])
         um_tab, report_tab = main_tabs
@@ -66,7 +69,7 @@ else:
         report_tab = st.tabs(['🗂️ تقارير البطاقات'])[0]
         um_tab = None
 
-    # User Management Section
+    # User Management
     if um_tab:
         with um_tab:
             st.header('👥 إدارة المستخدمين')
@@ -89,9 +92,12 @@ else:
                     br_name = st.text_input('اسم الفرع')
                     pwd = st.text_input('كلمة المرور', type='password')
                     is_active = st.checkbox('مفعل', value=True)
+                    # Define role options based on current role
                     roles = ['viewer', 'uploader']
                     if role == 'admin':
                         roles = ['admin', 'management'] + roles
+                    elif role == 'management':
+                        roles = ['management'] + roles
                     selected_role = st.selectbox('نوع المستخدم', roles)
                     if st.form_submit_button('إضافة'):
                         if new_id in credentials['usernames']:
@@ -125,9 +131,15 @@ else:
                     bc2 = st.text_input('كود الفرع', value=info['branch_code'])
                     bn2 = st.text_input('اسم الفرع', value=info['branch_name'])
                     active2 = st.checkbox('مفعل', value=info['is_active'])
+                    # Define role options based on current role
                     role_opts = ['viewer', 'uploader']
                     if role == 'admin':
                         role_opts = ['admin', 'management'] + role_opts
+                    elif role == 'management':
+                        role_opts = ['management'] + role_opts
+                    # Ensure current role is in options
+                    if info['role'] not in role_opts:
+                        role_opts.insert(0, info['role'])
                     sel_role2 = st.selectbox('نوع المستخدم', role_opts, index=role_opts.index(info['role']))
                     cpwd = st.checkbox('تغيير كلمة المرور')
                     if cpwd:
@@ -136,7 +148,15 @@ else:
                         if sel_role2 == 'admin' and role != 'admin':
                             st.error('غير مسموح بتعيين دور إدمن')
                         else:
-                            info.update({'name': fn2, 'email': em2, 'phone': ph2, 'branch_code': bc2, 'branch_name': bn2, 'role': sel_role2, 'is_active': active2})
+                            info.update({
+                                'name': fn2,
+                                'email': em2,
+                                'phone': ph2,
+                                'branch_code': bc2,
+                                'branch_name': bn2,
+                                'role': sel_role2,
+                                'is_active': active2
+                            })
                             if cpwd and new_pwd:
                                 info['password'] = stauth.Hasher([new_pwd]).generate()[0]
                             credentials['usernames'][sel_user] = info
@@ -182,7 +202,7 @@ else:
                     ed = st.date_input('📆 إلى تاريخ', min_value=mn, max_value=mx, value=mx)
                     sd_ts, ed_ts = pd.to_datetime(sd), pd.to_datetime(ed)
                     df_all = df_all[(df_all['Issuance Date'] >= sd_ts) & (df_all['Issuance Date'] <= ed_ts)]
-                for br in sorted(df_all['Delivery Branch Code'].unique()):
+                for br in sorted(df_all['Delivery_BRANCH Code'] if False else df_all['Delivery Branch Code'].unique()):
                     df_br = df_all[df_all['Delivery Branch Code'] == br]
                     with st.expander(f'📌 فرع {br}'):
                         st.dataframe(df_br, use_container_width=True)
@@ -194,3 +214,4 @@ else:
                             st.download_button(f'⬇️ تحميل فرع {br}', buf, f'branch_{br}.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         else:
             st.info('ℹ️ لا توجد بيانات بعد.')
+
