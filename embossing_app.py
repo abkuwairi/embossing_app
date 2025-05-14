@@ -210,7 +210,7 @@ else:
                 for br in sorted(df_all['Delivery Branch Code'].unique()):
                     df_br = df_all[df_all['Delivery Branch Code'] == br]
                     with st.expander(f'📌 فرع {br}'):
-                        st.dataframe(df_br, use_column_width=True)
+                        st.dataframe(df_br, use_container_width=True)
                         if can_dn:
                             buf = io.BytesIO()
                             with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
