@@ -28,7 +28,6 @@ authenticator = stauth.Authenticate(
 )
 
 # واجهة تسجيل الدخول
-# واجهة تسجيل الدخول
 name, authentication_status, username = authenticator.login('🔐 تسجيل الدخول', 'main')
 
 if authentication_status is False:
