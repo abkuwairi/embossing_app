@@ -91,7 +91,8 @@ else:
         logger.error(f"Logout KeyError for {username}: {e}")
         logout_clicked = True
     if logout_clicked:
-        st.experimental_rerun()
+        # Stop script on logout to refresh login state
+        st.stop()
 
     st.sidebar.success(f'Welcome {name}')
     user_info = credentials['usernames'].get(username, {})
