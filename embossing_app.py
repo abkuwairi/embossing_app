@@ -2,147 +2,180 @@ import streamlit as st
 import pandas as pd
 import os
 import io
-import streamlit_authenticator as stauth
 import json
+import logging
+import streamlit_authenticator as stauth
 from datetime import datetime
 
-# Must be first command
+# Must be first Streamlit command
 st.set_page_config(page_title='Card Management', layout='wide')
 
-# -------------------- Paths and Config --------------------
+# ------------------ Configuration ------------------
 DATA_DIR = 'data'
-CRED_PATH = os.path.join(DATA_DIR, 'credentials.json')
+CRED_FILE = os.path.join(DATA_DIR, 'credentials.json')
 MASTER_FILE = os.path.join(DATA_DIR, 'master_data.xlsx')
+REQUIRED_COLUMNS = [
+    'Unmasked Card Number',
+    'Customer Name',
+    'Account Number',
+    'Issuance Date',
+    'Delivery Branch Code'
+]
+
+# Ensure data directory exists
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# -------------------- Load or Initialize Credentials --------------------
+# Set up logging
+logging.basicConfig(
+    filename=os.path.join(DATA_DIR, 'app.log'),
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s'
+)
+
+# ------------------ Credentials Handling ------------------
 def load_credentials():
-    if os.path.exists(CRED_PATH):
-        return json.load(open(CRED_PATH))
-    # initialize default
-    creds = {
+    if os.path.exists(CRED_FILE):
+        with open(CRED_FILE, 'r') as f:
+            return json.load(f)
+    # Default credentials (demo only)
+    defaults = {
         'usernames': {
             'admin_user': {'name': 'Admin', 'password': None, 'role': 'admin'},
-            'branch101': {'name': 'Branch 101', 'password': None, 'role': 'viewer'},
-            'branch102': {'name': 'Branch 102', 'password': None, 'role': 'viewer'}
+            'branch101': {'name': 'Branch101', 'password': None, 'role': 'viewer'},
+            'branch102': {'name': 'Branch102', 'password': None, 'role': 'viewer'}
         }
     }
-    # Set default passwords
-    defaults = {'admin_user': 'admin123', 'branch101': 'b101', 'branch102': 'b102'}
-    hashed = stauth.Hasher(list(defaults.values())).generate()
-    for (u,p), h in zip(defaults.items(), hashed):
-        creds['usernames'][u]['password'] = h
-    json.dump(creds, open(CRED_PATH, 'w'), indent=4)
-    return creds
+    plain = {'admin_user': 'admin123', 'branch101': 'b101', 'branch102': 'b102'}
+    for u, info in defaults['usernames'].items():
+        info['password'] = stauth.Hasher([plain[u]]).generate()[0]
+    with open(CRED_FILE, 'w') as f:
+        json.dump(defaults, f, indent=4)
+    return defaults
 
 credentials = load_credentials()
-
-# Build authenticator
-active_users = {u: {'name': info['name'], 'password': info['password']} for u, info in credentials['usernames'].items()}
-authenticator = stauth.Authenticate(
-    {'usernames': active_users},
+active = {u: {'name': v['name'], 'password': v['password']} for u, v in credentials['usernames'].items()}
+auth = stauth.Authenticate(
+    {'usernames': active},
     cookie_name='card_app_cookie',
-    key='secure_key_123',
+    key='secure_and_unique_key',
     cookie_expiry_days=1
 )
 
-# -------------------- Authentication --------------------
-name, auth_status, username = authenticator.login('🔐 Login', 'main')
-if auth_status is False:
-    st.error('❌ Invalid username or password')
-elif auth_status is None:
-    st.warning('👈 Please log in to continue')
-else:
-    # Logout
-    authenticator.logout('Logout', 'sidebar')
-    st.sidebar.success(f'Welcome {name}')
-    user_info = credentials['usernames'][username]
-    role = user_info.get('role', 'viewer')
-    is_admin = (role == 'admin')
-
-    # -------------------- Admin User Management --------------------
-    if is_admin:
-        st.sidebar.markdown('---')
-        st.sidebar.header('Admin: User Management')
-        df_users = pd.DataFrame.from_dict(credentials['usernames'], orient='index')
-        df_disp = df_users[['name','role']].rename(columns={'name':'Full Name'})
-        df_disp.index.name = 'Username'
-        st.sidebar.dataframe(df_disp)
-        st.sidebar.subheader('Add New User')
-        with st.sidebar.form('add_user'):
-            new_user = st.text_input('Username')
-            full_name = st.text_input('Full Name')
-            pwd = st.text_input('Password', type='password')
-            role_choice = st.selectbox('Role', ['admin','uploader','viewer'])
-            submit_user = st.form_submit_button('Create User')
-            if submit_user:
-                if new_user in credentials['usernames']:
-                    st.sidebar.error('User already exists')
-                elif not new_user or not full_name or not pwd:
-                    st.sidebar.error('All fields are required')
-                else:
-                    # Hash and save
-                    h = stauth.Hasher([pwd]).generate()[0]
-                    credentials['usernames'][new_user] = {'name': full_name, 'password': h, 'role': role_choice}
-                    json.dump(credentials, open(CRED_PATH, 'w'), indent=4)
-                    st.sidebar.success(f'User {new_user} created')
-                    st.experimental_rerun()
-
-    # -------------------- Upload Section --------------------
-    st.title('📤 Upload Daily Card Report')
-    if is_admin or role.startswith('branch'):
-        uploaded = st.file_uploader('Choose Excel (.xlsx) file', type=['xlsx'])
-        if uploaded:
-            df_new = pd.read_excel(uploaded, dtype=str)
-            df_new['Load Date'] = datetime.today().strftime('%Y-%m-%d')
-            if os.path.exists(MASTER_FILE):
-                df_old = pd.read_excel(MASTER_FILE, dtype=str)
-                df_comb = pd.concat([df_old, df_new], ignore_index=True)
-            else:
-                df_comb = df_new
-            df_comb.to_excel(MASTER_FILE, index=False)
-            st.success('✅ Master data updated')
-
-    # -------------------- Reports & Branch Data --------------------
-    st.title('📊 Reports & Branch Data')
+# ------------------ Data Loading ------------------
+@st.cache_data(show_spinner=False)
+def load_master_data() -> pd.DataFrame:
     if os.path.exists(MASTER_FILE):
-        df_all = pd.read_excel(MASTER_FILE, dtype=str)
-        df_all['Delivery Branch Code'] = df_all['Delivery Branch Code'].astype(str).str.strip()
-        df_all = df_all.drop_duplicates(subset=['Unmasked Card Number','Account Number'])
-        df_all['Issuance Date'] = pd.to_datetime(df_all['Issuance Date'], errors='coerce', dayfirst=True)
+        df = pd.read_excel(MASTER_FILE, dtype=str)
+        df.columns = df.columns.str.strip()
+        df['Delivery Branch Code'] = df['Delivery Branch Code'].astype(str).str.strip()
+        df['Issuance Date'] = pd.to_datetime(df['Issuance Date'], errors='coerce')
+        return df
+    cols = REQUIRED_COLUMNS + ['Load Date']
+    return pd.DataFrame(columns=cols)
 
-        search = st.text_input('🔍 Search by customer, card, or account')
-        df_f = df_all.copy()
-        if search:
-            mask = (
-                df_f['Customer Name'].str.contains(search, case=False, na=False) |
-                df_f['Account Number'].str.contains(search, na=False) |
-                df_f['Unmasked Card Number'].str.contains(search, na=False)
-            )
-            df_f = df_f[mask]
+# ------------------ UI Setup ------------------
+st.set_page_config(page_title='Card Management', layout='wide')
+# ------------------ UI ------------------
+name, status, username = auth.login('🔐 Login', 'main')
+if status is False:
+    st.error('❌ Invalid credentials')
+elif status is None:
+    st.warning('👈 Please login to continue')
+else:
+    auth.logout('Logout', 'sidebar')
+    st.sidebar.success(f'Welcome {name}')
+    # Determine role
+    user_info = credentials['usernames'].get(username, {})
+    role = user_info.get('role', 'viewer')
 
-        # Separate From and To date filters
-        min_date = df_f['Issuance Date'].min()
-        max_date = df_f['Issuance Date'].max()
-        from_date = st.date_input('From date', min_value=min_date, max_value=max_date, value=min_date)
-        to_date = st.date_input('To date', min_value=min_date, max_value=max_date, value=max_date)
-        # Convert to timestamps for comparison
-        start_ts = pd.to_datetime(from_date)
-        end_ts = pd.to_datetime(to_date)
-        # Filter DataFrame
-        df_f = df_f[(df_f['Issuance Date'] >= start_ts) & (df_f['Issuance Date'] <= end_ts)]
-
-        # Display by branch
-        branches = sorted(df_f['Delivery Branch Code'].unique())
-        for b in branches:
-            df_b = df_f[df_f['Delivery Branch Code'] == b]
-            st.subheader(f'Branch {b} ({len(df_b)} records)')
-            st.dataframe(df_b, use_container_width=True)
-            buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine='xlsxwriter') as w:
-                df_b.to_excel(w, index=False, sheet_name='Sheet1')
-            buf.seek(0)
-            st.download_button(f'⬇️ Download Branch {b}', buf, f'branch_{b}.xlsx',
-                               'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    # Tabs: include User Management for admin
+    if role == 'admin':
+        tab_users, tab_upload, tab_reports = st.tabs([
+            '👥 User Management',
+            '📤 Upload Data',
+            '📊 Reports & Analytics'
+        ])
     else:
-        st.info('ℹ️ No data available. Please upload a report.')
+        tab_upload, tab_reports = st.tabs([
+            '📤 Upload Data',
+            '📊 Reports & Analytics'
+        ])
+
+    # ------------------ User Management ------------------
+    if role == 'admin':
+        with tab_users:
+            st.header('👥 User Management')
+            df_users = pd.DataFrame.from_dict(credentials['usernames'], orient='index')
+            df_users_display = df_users[['name', 'role']]
+            df_users_display.index.name = 'username'
+            st.dataframe(df_users_display, use_container_width=True)
+
+    # ------------------ Upload Data ------------------
+    with tab_upload:
+        st.header('📤 Upload Card Data')
+        uploaded = st.file_uploader(
+            'Upload .xlsx, .xls or .csv',
+            type=['xlsx', 'xls', 'csv'],
+            help='Ensure columns: ' + ', '.join(REQUIRED_COLUMNS)
+        )
+        if uploaded:
+            try:
+                if uploaded.name.lower().endswith(('xlsx', 'xls')):
+                    df_new = pd.read_excel(uploaded, dtype=str)
+                else:
+                    df_new = pd.read_csv(uploaded, dtype=str)
+                df_new.columns = df_new.columns.str.strip()
+                missing = [c for c in REQUIRED_COLUMNS if c not in df_new.columns]
+                if missing:
+                    st.error(f'Missing columns: {missing}')
+                else:
+                    st.subheader('Preview of Uploaded Data')
+                    st.dataframe(df_new.head(5), use_container_width=True)
+                    if st.button('Save to Master'):
+                        df_new['Delivery Branch Code'] = df_new['Delivery Branch Code'].astype(str).str.strip()
+                        df_new['Issuance Date'] = pd.to_datetime(
+                            df_new['Issuance Date'], errors='coerce', dayfirst=True
+                        )
+                        df_new['Load Date'] = datetime.today().strftime('%Y-%m-%d')
+                        master = load_master_data()
+                        combined = pd.concat([master, df_new], ignore_index=True)
+                        combined.drop_duplicates(
+                            subset=['Unmasked Card Number', 'Account Number', 'Delivery Branch Code'],
+                            inplace=True
+                        )
+                        combined.to_excel(MASTER_FILE, index=False)
+                        st.success('✅ Data saved successfully')
+                        logging.info(f"{username} saved {len(df_new)} rows")
+                        load_master_data.clear()
+            except Exception as e:
+                st.error(f'❌ Error: {e}')
+
+    # ------------------ Reports & Analytics ------------------
+    with tab_reports:
+        st.header('📊 Reports & Branch Data')
+        df_all = load_master_data()
+        if df_all.empty:
+            st.info('No data available. Please upload first.')
+        else:
+            counts = df_all.groupby('Delivery Branch Code').size().reset_index(name='Count')
+            st.subheader('Cards per Branch')
+            st.dataframe(counts, use_container_width=True)
+            branches = sorted(df_all['Delivery Branch Code'].unique())
+            selected = st.multiselect('Select Branch(es)', branches, default=branches)
+            view = df_all[df_all['Delivery Branch Code'].isin(selected)]
+            min_d, max_d = view['Issuance Date'].min(), view['Issuance Date'].max()
+            start, end = st.date_input('Date range', [min_d, max_d], min_value=min_d, max_value=max_d)
+            view = view[view['Issuance Date'].between(pd.to_datetime(start), pd.to_datetime(end))]
+            st.subheader('Filtered Data')
+            st.dataframe(view, use_container_width=True)
+            now = datetime.now().strftime('%Y%m%d_%H%M%S')
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+                view.to_excel(writer, index=False, sheet_name='Data')
+            buf.seek(0)
+            st.download_button(
+                label=f'⬇️ Download Export ({now})',
+                data=buf,
+                file_name=f'cards_export_{now}.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
