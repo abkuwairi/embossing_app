@@ -164,7 +164,6 @@ else:
                         df_comb.to_excel(MASTER_FILE, index=False)
                         st.success('✅ Data updated successfully')
                         logging.info(f"User {username} uploaded {uploaded_file.name}")
-                        st.experimental_rerun()
                 except Exception as e:
                     st.error(f'❌ Error during processing: {e}')
 
