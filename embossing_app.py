@@ -118,9 +118,28 @@ else:
                     load_master_data.clear()
     elif page=='Reports & Branch Data':
         st.header('Reports & Branch Data')
-        df=load_master_data()
-        if df.empty: st.info('No data.')
+        df = load_master_data()
+        if df.empty:
+            st.info('No data.')
         else:
+            term = st.text_input('Search by name, card, account')
+            dff = df.copy()
+            if term:
+                mask = (
+                    dff['Customer Name'].str.contains(term, case=False, na=False) |
+                    dff['Unmasked Card Number'].str.contains(term, na=False) |
+                    dff['Account Number'].str.contains(term, na=False)
+                )
+                dff = dff[mask]
+            mn, mx = dff['Issuance Date'].min(), dff['Issuance Date'].max()
+            fr = st.date_input('From date', min_value=mn, max_value=mx, value=mn)
+            to = st.date_input('To date', min_value=mn, max_value=mx, value=mx)
+            # Compare timestamps by converting date inputs to datetime
+            start_ts = pd.to_datetime(fr)
+            end_ts = pd.to_datetime(to)
+            res = dff[(dff['Issuance Date'] >= start_ts) & (dff['Issuance Date'] <= end_ts)]
+            st.dataframe(res.reset_index(drop=True), use_container_width=True)
+    else:
             term=st.text_input('Search by name,card,account')
             dff=df.copy()
             if term:
