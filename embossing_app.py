@@ -60,7 +60,7 @@ authenticator = stauth.Authenticate(
 # ------------------ Data Loading ------------------
 def load_master_data():
     """
-    Load the master_data.xlsx file fresh on each call to avoid caching issues.
+    Load and return the current master_data file as a DataFrame.
     """
     if os.path.exists(MASTER_FILE):
         df = pd.read_excel(MASTER_FILE, dtype=str)
@@ -76,28 +76,26 @@ if auth_status is False:
 elif auth_status is None:
     st.warning('👈 Please login to continue')
 else:
-    # Greet user
+    # Greet
     user_info = credentials['usernames'].get(username, {})
     st.sidebar.success(f"Welcome {user_info.get('name', username)}")
     authenticator.logout('Logout', 'sidebar', key='logout_btn')
 
-    # Permissions
+    # Roles
     role = user_info.get('role', 'viewer')
     can_upload = role in ['admin', 'management', 'uploader']
     can_manage = role == 'admin'
 
     # Header
-    if os.path.exists('logo.png'):
-        st.image('logo.png', use_container_width=True)
     st.markdown('# 🚀 Card Management System')
 
-    # Navigation tabs
+    # Tabs
     tabs = ['📊 Card Reports']
     if can_manage:
         tabs.insert(0, '👥 User Management')
     selected_tab = st.selectbox('Main Menu', tabs)
 
-    # ------------------ User Management ------------------
+    # User Management
     if selected_tab == '👥 User Management':
         st.header('👥 User Management')
         df_users = pd.DataFrame.from_dict(credentials['usernames'], orient='index')
@@ -105,60 +103,41 @@ else:
         df_disp.index.name = 'username'
         st.dataframe(df_disp, use_container_width=True)
 
-        st.subheader('Add New User')
-        with st.form('add_form'):
-            new_user = st.text_input('Username')
-            full_name = st.text_input('Full Name')
-            email = st.text_input('Email')
-            phone = st.text_input('Phone Number')
-            branch_code = st.text_input('Branch Code')
-            branch_name = st.text_input('Branch Name')
-            password = st.text_input('Password', type='password')
-            is_active = st.checkbox('Active', value=True)
-            role_choice = st.selectbox('Role', ['admin', 'management', 'viewer', 'uploader'])
-            if st.form_submit_button('Add User'):
-                missing_cols = [c for c in REQUIRED_COLUMNS if c not in load_master_data().columns]
-                if missing_cols:
-                    st.error(f'Cannot add user before uploading data. Missing columns: {missing_cols}')
-                elif new_user in credentials['usernames']:
-                    st.error('User already exists')
-                else:
-                    credentials['usernames'][new_user] = {
-                        'name': full_name,
-                        'email': email,
-                        'phone': phone,
-                        'branch_code': branch_code.strip(),
-                        'branch_name': branch_name,
-                        'role': role_choice,
-                        'is_active': is_active,
-                        'password': stauth.Hasher([password]).generate()[0]
-                    }
-                    with open(CRED_FILE, 'w') as f:
-                        json.dump(credentials, f, indent=4)
-                    st.success('User added successfully')
-
-    # ------------------ Card Reports ------------------
+    # Card Reports
     if selected_tab == '📊 Card Reports':
         st.header('📊 Card Reports')
-        st.info('Upload an XLSX or CSV file containing columns: ' + ', '.join(REQUIRED_COLUMNS))
+        st.info('Upload an XLSX, XLS, or CSV file with columns: ' + ', '.join(REQUIRED_COLUMNS))
         if can_upload:
-            uploaded_file = st.file_uploader('Choose a file', type=['xlsx', 'csv'], help='Ensure column names match exactly')
+            uploaded_file = st.file_uploader('Choose a file', type=['xlsx', 'xls', 'csv'], help='Column names must match exactly')
             if uploaded_file:
                 try:
-                    # Read and sanitize column names
-                    df_new = (
-                        pd.read_csv(uploaded_file, dtype=str)
-                        if uploaded_file.name.lower().endswith('.csv')
-                        else pd.read_excel(uploaded_file, dtype=str)
-                    )
+                    # Read file
+                    if uploaded_file.name.lower().endswith(('.xlsx', '.xls')):
+                        df_new = pd.read_excel(uploaded_file, dtype=str)
+                    else:
+                        df_new = pd.read_csv(uploaded_file, dtype=str)
+
+                    # Sanitize
                     df_new.columns = df_new.columns.str.strip()
-                    missing = [c for c in REQUIRED_COLUMNS if c not in df_new.columns]
-                    if missing:
+                    if any(c not in df_new.columns for c in REQUIRED_COLUMNS):
+                        missing = [c for c in REQUIRED_COLUMNS if c not in df_new.columns]
                         st.error(f'Missing columns: {missing}')
                     else:
+                        # Debug branch codes
                         df_new['Delivery Branch Code'] = df_new['Delivery Branch Code'].astype(str).str.strip()
-                        df_new['Load Date'] = datetime.today().strftime('%Y-%m-%d')
+                        st.write('📋 Detected branch codes in upload:', df_new['Delivery Branch Code'].unique())
 
+                        # Date parsing
+                        df_new['Issuance Date Raw'] = df_new['Issuance Date']
+                        parsed = pd.to_datetime(df_new['Issuance Date Raw'].astype(str).str.strip(), errors='coerce', dayfirst=True, infer_datetime_format=True)
+                        mask = parsed.isna() & df_new['Issuance Date Raw'].notna()
+                        if mask.any():
+                            parsed.loc[mask] = pd.to_datetime(df_new.loc[mask, 'Issuance Date Raw'], errors='coerce', dayfirst=False, infer_datetime_format=True)
+                            st.write('⚠️ Dates failed initial parse:', df_new.loc[mask, 'Issuance Date Raw'].unique())
+                        df_new['Issuance Date'] = parsed.dt.strftime('%Y-%m-%d')
+
+                        # Append
+                        df_new['Load Date'] = datetime.today().strftime('%Y-%m-%d')
                         df_master = load_master_data()
                         df_comb = pd.concat([df_master, df_new], ignore_index=True)
                         df_comb.to_excel(MASTER_FILE, index=False)
@@ -167,34 +146,28 @@ else:
                 except Exception as e:
                     st.error(f'❌ Error during processing: {e}')
 
+        # Load and display
         df_all = load_master_data()
         if df_all.empty:
             st.info('ℹ️ No data to display')
         else:
-            # Robust date parsing: try dayfirst, then fallback
-            raw_dates = df_all['Issuance Date'].astype(str).str.strip()
-            parsed = pd.to_datetime(raw_dates, errors='coerce', dayfirst=True)
-            mask = parsed.isna() & raw_dates.notna() & (raw_dates != '')
-            if mask.any():
-                fallback = pd.to_datetime(raw_dates[mask], errors='coerce', dayfirst=False)
-                parsed.loc[mask] = fallback
-            df_all['Issuance Date'] = parsed
-            bad_count = parsed.isna().sum()
-            if bad_count > 0:
-                st.warning(f'❗ Failed to parse {bad_count} Issuance Date values. Please verify formats.')
+            # Debug master branches
+            st.write('📋 All branch codes in master data:', df_all['Delivery Branch Code'].unique())
 
-            # Global search filter
+            # Parse master dates
+            parsed = pd.to_datetime(df_all['Issuance Date'], errors='coerce', dayfirst=True, infer_datetime_format=True)
+            df_all['Issuance Date'] = parsed
+
+            # Global search
             query = st.text_input('🔍 Global Search')
             if query:
                 df_all = df_all[df_all.apply(lambda row: row.astype(str).str.contains(query, case=False).any(), axis=1)]
 
-            # Date range filter
-            valid_dates = df_all['Issuance Date'].dropna()
-            if not valid_dates.empty:
-                min_date = valid_dates.min()
-                max_date = valid_dates.max()
-                start = st.date_input('From Date', min_value=min_date, max_value=max_date, value=min_date)
-                end = st.date_input('To Date', min_value=min_date, max_value=max_date, value=max_date)
+            # Date filter
+            valid = df_all['Issuance Date'].dropna()
+            if not valid.empty:
+                start = st.date_input('From Date', min_value=valid.min(), max_value=valid.max(), value=valid.min())
+                end = st.date_input('To Date', min_value=valid.min(), max_value=valid.max(), value=valid.max())
                 df_all = df_all[(df_all['Issuance Date'] >= pd.to_datetime(start)) & (df_all['Issuance Date'] <= pd.to_datetime(end))]
 
             # Display by branch
@@ -208,4 +181,3 @@ else:
                             subset.to_excel(writer, index=False, sheet_name='Sheet1')
                         buf.seek(0)
                         st.download_button('⬇️ Download Data', buf, f'{branch}.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-# End of app
