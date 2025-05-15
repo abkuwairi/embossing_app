@@ -65,6 +65,7 @@ def load_master_data():
     if os.path.exists(MASTER_FILE):
         df = pd.read_excel(MASTER_FILE, dtype=str)
         df.columns = df.columns.str.strip()
+        df['Delivery Branch Code'] = df['Delivery Branch Code'].astype(str).str.strip()
         return df
     return pd.DataFrame(columns=REQUIRED_COLUMNS + ['Load Date'])
 
@@ -144,16 +145,18 @@ else:
             uploaded_file = st.file_uploader('Choose a file', type=['xlsx', 'csv'], help='Ensure column names match exactly')
             if uploaded_file:
                 try:
+                    # Read and sanitize column names
                     df_new = (
                         pd.read_csv(uploaded_file, dtype=str)
                         if uploaded_file.name.lower().endswith('.csv')
                         else pd.read_excel(uploaded_file, dtype=str)
                     )
+                    df_new.columns = df_new.columns.str.strip()
                     missing = [c for c in REQUIRED_COLUMNS if c not in df_new.columns]
                     if missing:
                         st.error(f'Missing columns: {missing}')
                     else:
-                        df_new = df_new.copy()
+                        df_new['Delivery Branch Code'] = df_new['Delivery Branch Code'].astype(str).str.strip()
                         df_new['Load Date'] = datetime.today().strftime('%Y-%m-%d')
 
                         df_master = load_master_data()
@@ -161,6 +164,7 @@ else:
                         df_comb.to_excel(MASTER_FILE, index=False)
                         st.success('✅ Data updated successfully')
                         logging.info(f"User {username} uploaded {uploaded_file.name}")
+                        st.experimental_rerun()
                 except Exception as e:
                     st.error(f'❌ Error during processing: {e}')
 
@@ -187,8 +191,8 @@ else:
                 df_all = df_all[(df_all['Issuance Date'] >= pd.to_datetime(start)) & (df_all['Issuance Date'] <= pd.to_datetime(end))]
 
             # Display by branch
-            for branch in sorted(df_all['Delivery Branch Code'].str.strip().unique()):
-                subset = df_all[df_all['Delivery Branch Code'].str.strip() == str(branch)]
+            for branch in sorted(df_all['Delivery Branch Code'].unique()):
+                subset = df_all[df_all['Delivery Branch Code'] == branch]
                 with st.expander(f'Branch {branch} ({len(subset)} rows)'):
                     st.dataframe(subset, use_container_width=True)
                     if can_upload:
