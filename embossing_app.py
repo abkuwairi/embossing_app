@@ -2,111 +2,141 @@ import streamlit as st
 import pandas as pd
 import os
 import io
+import json
 import streamlit_authenticator as stauth
 from datetime import datetime
 
-# إعداد بيانات الاعتماد المسبقة
-usernames = ['admin_user', 'branch101', 'branch102']
-names = ['Admin', 'Branch 101', 'Branch 102']
-hashed_passwords = [
-    '$2b$12$VaSfgEv8qGeM2cf.XJngnOKRYaODu6DhHuMKPC8U/nTwZa/8s3FQW',  # admin123
-    '$2b$12$NykdiGRPNN3LB3hnflZ75eab9xHiFSA0O9Uv7k7nN8XKhslYruFKO',  # b101
-    '$2b$12$Z9qC1b1hjg/U5D9clU6xQOKVIn2ycpTGn64sQeCNP.DTmBTaJjlta'   # b102
-]
+# Must be first command
+st.set_page_config(page_title='Card Management', layout='wide')
 
-# تحضير قاموس الاعتماد
-credentials = {'usernames': {}}
-for uname, full_name, pwd in zip(usernames, names, hashed_passwords):
-    credentials['usernames'][uname] = {'name': full_name, 'password': pwd}
+# -------------------- Paths and Config --------------------
+DATA_DIR = 'data'
+CRED_PATH = os.path.join(DATA_DIR, 'credentials.json')
+MASTER_FILE = os.path.join(DATA_DIR, 'master_data.xlsx')
+os.makedirs(DATA_DIR, exist_ok=True)
 
-# إنشاء المصادق
+# -------------------- Load or Initialize Credentials --------------------
+def load_credentials():
+    if os.path.exists(CRED_PATH):
+        return json.load(open(CRED_PATH))
+    # initialize default
+    creds = {
+        'usernames': {
+            'admin_user': {'name': 'Admin', 'password': None, 'role': 'admin'},
+            'branch101': {'name': 'Branch 101', 'password': None, 'role': 'viewer'},
+            'branch102': {'name': 'Branch 102', 'password': None, 'role': 'viewer'}
+        }
+    }
+    # Set default passwords
+    defaults = {'admin_user': 'admin123', 'branch101': 'b101', 'branch102': 'b102'}
+    hashed = stauth.Hasher(list(defaults.values())).generate()
+    for (u,p),h in zip(defaults.items(), hashed):
+        creds['usernames'][u]['password'] = h
+    json.dump(creds, open(CRED_PATH, 'w'), indent=4)
+    return creds
+
+credentials = load_credentials()
+
+# Build authenticator
+active_users = {u: {'name':info['name'], 'password':info['password']} for u,info in credentials['usernames'].items()}
 authenticator = stauth.Authenticate(
-    credentials,
-    'embossing_app_cookie',
-    'abcd1234abcd1234abcd1234abcd1234',
+    {'usernames': active_users},
+    cookie_name='card_app_cookie',
+    key='secure_key_123',
     cookie_expiry_days=1
 )
 
-# واجهة تسجيل الدخول
-name, authentication_status, username = authenticator.login('🔐 تسجيل الدخول', 'main')
-
-if authentication_status is False:
-    st.error('❌ اسم المستخدم أو كلمة المرور غير صحيحة')
-elif authentication_status is None:
-    st.warning('👈 الرجاء تسجيل الدخول للاستمرار')
+# -------------------- Authentication --------------------
+name, auth_status, username = authenticator.login('🔐 Login', 'main')
+if auth_status is False:
+    st.error('❌ Invalid username or password')
+elif auth_status is None:
+    st.warning('👈 Please log in to continue')
 else:
-    # زر تسجيل الخروج
-    authenticator.logout('تسجيل الخروج', 'sidebar')
-    st.sidebar.success(f'مرحباً {name}')
+    # Logout
+    authenticator.logout('Logout', 'sidebar')
+    st.sidebar.success(f'Welcome {name}')
+    user_info = credentials['usernames'][username]
+    role = user_info.get('role', 'viewer')
+    is_admin = (role == 'admin')
 
-    # تحديد صلاحية المستخدم
-    is_uploader = (username == 'admin_user')
-
-    # إعداد المسارات
-    DATA_DIR = 'data'
-    MASTER_FILE = os.path.join(DATA_DIR, 'master_data.xlsx')
-    os.makedirs(DATA_DIR, exist_ok=True)
-
-    # رفع الملف (للمشرف)
-    if is_uploader:
-        uploaded_file = st.file_uploader('📁 رفع تقرير بطاقات اليومي (Excel فقط)', type=['xlsx'])
-        if uploaded_file is not None:
-            try:
-                df_new = pd.read_excel(uploaded_file, dtype=str)
-                df_new['Load Date'] = datetime.today().strftime('%Y-%m-%d')
-                if os.path.exists(MASTER_FILE):
-                    df_old = pd.read_excel(MASTER_FILE, dtype=str)
-                    df_combined = pd.concat([df_old, df_new], ignore_index=True)
+    # -------------------- Admin User Management --------------------
+    if is_admin:
+        st.sidebar.markdown('---')
+        st.sidebar.header('Admin: User Management')
+        df_users = pd.DataFrame.from_dict(credentials['usernames'], orient='index')
+        df_disp = df_users[['name','role']].rename(columns={'name':'Full Name'})
+        df_disp.index.name = 'Username'
+        st.sidebar.dataframe(df_disp)
+        st.sidebar.subheader('Add New User')
+        with st.sidebar.form('add_user'):  
+            new_user = st.text_input('Username')
+            full_name = st.text_input('Full Name')
+            pwd = st.text_input('Password', type='password')
+            role_choice = st.selectbox('Role', ['admin','uploader','viewer'])
+            submit_user = st.form_submit_button('Create User')
+            if submit_user:
+                if new_user in credentials['usernames']:
+                    st.sidebar.error('User already exists')
+                elif not new_user or not full_name or not pwd:
+                    st.sidebar.error('All fields are required')
                 else:
-                    df_combined = df_new
-                df_combined.to_excel(MASTER_FILE, index=False)
-                st.success('✅ تم تحديث قاعدة البيانات بنجاح.')
-            except Exception as e:
-                st.error(f'❌ خطأ أثناء رفع الملف: {e}')
+                    # Hash and save
+                    h = stauth.Hasher([pwd]).generate()[0]
+                    credentials['usernames'][new_user] = {'name': full_name, 'password': h, 'role': role_choice}
+                    json.dump(credentials, open(CRED_PATH, 'w'), indent=4)
+                    st.sidebar.success(f'User {new_user} created')
+                    st.experimental_rerun()
 
-    # عرض التقارير
-    st.title('📊 تقارير ومتابعة بطاقات Embossing')
+    # -------------------- Upload Section --------------------
+    st.title('📤 Upload Daily Card Report')
+    if is_admin or role.startswith('branch'):
+        uploaded = st.file_uploader('Choose Excel (.xlsx) file', type=['xlsx'])
+        if uploaded:
+            df_new = pd.read_excel(uploaded, dtype=str)
+            df_new['Load Date'] = datetime.today().strftime('%Y-%m-%d')
+            if os.path.exists(MASTER_FILE):
+                df_old = pd.read_excel(MASTER_FILE, dtype=str)
+                df_comb = pd.concat([df_old, df_new], ignore_index=True)
+            else:
+                df_comb = df_new
+            df_comb.to_excel(MASTER_FILE, index=False)
+            st.success('✅ Master data updated')
+
+    # -------------------- Reports & Branch Data --------------------
+    st.title('📊 Reports & Branch Data')
     if os.path.exists(MASTER_FILE):
         df_all = pd.read_excel(MASTER_FILE, dtype=str)
         df_all['Delivery Branch Code'] = df_all['Delivery Branch Code'].astype(str).str.strip()
-        df_all = df_all.drop_duplicates(subset=['Unmasked Card Number', 'Account Number'])
+        df_all = df_all.drop_duplicates(subset=['Unmasked Card Number','Account Number'])
         df_all['Issuance Date'] = pd.to_datetime(df_all['Issuance Date'], errors='coerce', dayfirst=True)
 
-        # البحث النصي
-        search_term = st.text_input('🔍 ابحث باسم الزبون أو رقم البطاقة أو الحساب')
-        for col in ['Customer Name', 'Account Number', 'Unmasked Card Number']:
-            df_all[col] = df_all[col].fillna('').astype(str)
-        if search_term:
+        search = st.text_input('🔍 Search by customer, card, or account')
+        df_f = df_all.copy()
+        if search:
             mask = (
-                df_all['Customer Name'].str.contains(search_term, case=False) |
-                df_all['Account Number'].str.contains(search_term) |
-                df_all['Unmasked Card Number'].str.contains(search_term)
+                df_f['Customer Name'].str.contains(search, case=False, na=False) |
+                df_f['Account Number'].str.contains(search, na=False) |
+                df_f['Unmasked Card Number'].str.contains(search, na=False)
             )
-            df_all = df_all[mask]
+            df_f = df_f[mask]
 
-        # فلترة بالتواريخ
-        if not df_all['Issuance Date'].isna().all():
-            min_date = df_all['Issuance Date'].min()
-            max_date = df_all['Issuance Date'].max()
-            start_date = st.date_input('📆 من تاريخ الإصدار', min_value=min_date, max_value=max_date, value=min_date)
-            end_date = st.date_input('📆 إلى تاريخ الإصدار', min_value=min_date, max_value=max_date, value=max_date)
-            df_all = df_all[(df_all['Issuance Date'] >= start_date) & (df_all['Issuance Date'] <= end_date)]
+        mn = df_f['Issuance Date'].min(); mx = df_f['Issuance Date'].max()
+        frm = st.date_input('From date', value=mn, min_value=mn, max_value=mx)
+        to = st.date_input('To date', value=mx, min_value=mn, max_value=mx)
+        start, end = pd.to_datetime(frm), pd.to_datetime(to)
+        df_f = df_f[(df_f['Issuance Date']>=start)&(df_f['Issuance Date']<=end)]
 
-        # عرض البيانات حسب الفروع
-        branches = sorted(df_all['Delivery Branch Code'].unique())
-        for branch in branches:
-            df_branch = df_all[df_all['Delivery Branch Code'] == branch]
-            with st.expander(f'📌 بيانات الفرع: {branch}', expanded=False):
-                st.dataframe(df_branch, use_container_width=True)
-                buf = io.BytesIO()
-                with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-                    df_branch.to_excel(writer, index=False)
-                buf.seek(0)
-                st.download_button(
-                    label=f'⬇️ تحميل بيانات الفرع {branch}',
-                    data=buf,
-                    file_name=f'branch_{branch}.xlsx',
-                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                )
+        branches = sorted(df_f['Delivery Branch Code'].unique())
+        for b in branches:
+            df_b = df_f[df_f['Delivery Branch Code']==b]
+            st.subheader(f'Branch {b} ({len(df_b)} records)')
+            st.dataframe(df_b, use_container_width=True)
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine='xlsxwriter') as w:
+                df_b.to_excel(w, index=False, sheet_name='Sheet1')
+            buf.seek(0)
+            st.download_button(f'⬇️ Download Branch {b}', buf, f'branch_{b}.xlsx',
+                                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     else:
-        st.info('ℹ️ لا توجد بيانات حتى الآن.')
+        st.info('ℹ️ No data available. Please upload a report.')
