@@ -75,7 +75,8 @@ else:
 
         # بحث نصي
         search_term = st.text_input('🔍 ابحث باسم الزبون أو رقم البطاقة أو الحساب:')
-        df_all[['Customer Name', 'Account Number', 'Unmasked Card Number']] = df_all[['Customer Name', 'Account Number', 'Unmasked Card Number']].fillna('').astype(str)
+        for col in ['Customer Name', 'Account Number', 'Unmasked Card Number']:
+            df_all[col] = df_all[col].fillna('').astype(str)
         if search_term:
             mask = (
                 df_all['Customer Name'].str.contains(search_term, case=False, na=False) |
@@ -90,10 +91,10 @@ else:
             max_date = df_all['Issuance Date'].max()
             start_date = st.date_input('📆 من تاريخ إصدار', min_value=min_date, max_value=max_date, value=min_date)
             end_date = st.date_input('📆 إلى تاريخ إصدار', min_value=min_date, max_value=max_date, value=max_date)
-            # Convert date inputs to datetime for comparison
-start_ts = pd.to_datetime(start_date)
-end_ts = pd.to_datetime(end_date)
-df_all = df_all[(df_all['Issuance Date'] >= start_ts) & (df_all['Issuance Date'] <= end_ts)]
+            # تحويل المدخلات إلى Timestamp
+            start_ts = pd.to_datetime(start_date)
+            end_ts = pd.to_datetime(end_date)
+            df_all = df_all[(df_all['Issuance Date'] >= start_ts) & (df_all['Issuance Date'] <= end_ts)]
 
         # عرض حسب الفروع
         branches = sorted(df_all['Delivery Branch Code'].unique())
