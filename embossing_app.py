@@ -158,35 +158,31 @@ else:
                 st.error(f'❌ Error: {e}')
                 logger.error(f"{username} upload error: {e}")
 
-    # Reports & Analytics
+        # Reports & Analytics
     with tab_map['📊 Reports & Analytics']:
         st.header('📊 Reports & Branch Data')
         df_all = load_master_data()
         if df_all.empty:
             st.info('No data available. Please upload first.')
         else:
-            counts = df_all.groupby('Delivery Branch Code').size().reset_index(name='Count')
-            st.subheader('Cards per Branch')
-            st.dataframe(counts, use_container_width=True)
-            branches = sorted(df_all['Delivery Branch Code'].unique())
-            selected_branches = st.multiselect('Select Branch(es)', branches, default=branches)
-            filtered_view = df_all[df_all['Delivery Branch Code'].isin(selected_branches)]
-            min_date, max_date = filtered_view['Issuance Date'].min(), filtered_view['Issuance Date'].max()
-            # Separate From and To date pickers
-            from_date = st.date_input('From date', min_value=min_date, max_value=max_date, value=min_date)
-            to_date = st.date_input('To date', min_value=min_date, max_value=max_date, value=max_date)
-            view = filtered_view[(filtered_view['Issuance Date'] >= pd.to_datetime(from_date)) & (filtered_view['Issuance Date'] <= pd.to_datetime(to_date))]
-            st.subheader('Filtered Data')
-            st.dataframe(view, use_container_width=True)
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            buf = io.BytesIO()
-            with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-                view.to_excel(writer, index=False, sheet_name='Data')
-            buf.seek(0)
-            filename = f'cards_export_{timestamp}.xlsx'
-            if st.download_button(label=f'⬇️ Download Export ({timestamp})', data=buf, file_name=filename,
-                                  mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'):
-                logger.info(f"{username} downloaded {filename}")
+            # Global search by customer name, card or account
+            search_term = st.text_input('🔍 Search by name, card number, or account number')
+            df_filtered = df_all.copy()
+            if search_term:
+                mask = (
+                    df_filtered['Customer Name'].str.contains(search_term, case=False, na=False) |
+                    df_filtered['Account Number'].str.contains(search_term, na=False) |
+                    df_filtered['Unmasked Card Number'].str.contains(search_term, na=False)
+                )
+                df_filtered = df_filtered[mask]
+            # Date filters
+            min_d, max_d = df_filtered['Issuance Date'].min(), df_filtered['Issuance Date'].max()
+            from_date = st.date_input('From date', min_value=min_d, max_value=max_d, value=min_d)
+            to_date = st.date_input('To date', min_value=min_d, max_value=max_d, value=max_d)
+            df_filtered = df_filtered[(df_filtered['Issuance Date'] >= pd.to_datetime(from_date)) & (df_filtered['Issuance Date'] <= pd.to_datetime(to_date))]
+            # Display results
+            st.subheader('Results')
+            st.dataframe(df_filtered.reset_index(drop=True), use_container_width=True)
 
     # Application Logs (Admin only)
     if role == 'admin':
