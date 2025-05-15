@@ -154,6 +154,7 @@ else:
                         st.success('✅ Data saved successfully')
                         logger.info(f"{username} saved {len(df_new)} rows")
                         load_master_data.clear()
+                            st.experimental_rerun()
             except Exception as e:
                 st.error(f'❌ Error: {e}')
                 logger.error(f"{username} upload error: {e}")
