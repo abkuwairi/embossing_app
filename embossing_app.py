@@ -8,11 +8,10 @@ from datetime import datetime
 # بيانات الاعتماد المسبقة
 usernames = ['admin_user', 'branch101', 'branch102']
 names = ['Admin', '101', '102']
-hashed_passwords = [
-    '$2b$12$VaSfgEv8qGeM2cf.XJngnOKRYaODu6DhHuMKPC8U/nTwZa/8s3FQW',  # admin123
-    '$2b$12$NykdiGRPNN3LB3hnflZ75eab9xHiFSA0O9Uv7k7nN8XKhslYruFKO',  # b101
-    '$2b$12$Z9qC1b1hjg/U5D9clU6xQOKVIn2ycpTGn64sQeCNP.DTmBTaJjlta'   # b102
-]
+# كلمات المرور الأساسية (نصية)
+plain_passwords = ['admin123', 'b101', 'b102']
+# توليد الهاشات في وقت التشغيل لضمان التوافق
+hashed_passwords = stauth.Hasher(plain_passwords).generate()
 
 # تحضير قاموس الاعتماد كما يتطلب streamlit-authenticator 0.2.1+
 credentials = {'usernames': {}}
