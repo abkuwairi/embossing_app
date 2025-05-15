@@ -28,8 +28,7 @@ authenticator = stauth.Authenticate(
 )
 
 # واجهة تسجيل الدخول
-# Display login in sidebar to ensure proper session handling
-name, authentication_status, username = # Login in main area for clarity
+# واجهة تسجيل الدخول
 name, authentication_status, username = authenticator.login('🔐 تسجيل الدخول', 'main')
 
 if authentication_status is False:
