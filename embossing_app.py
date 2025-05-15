@@ -171,10 +171,17 @@ else:
         if df_all.empty:
             st.info('ℹ️ No data to display')
         else:
-            df_all['Issuance Date'] = pd.to_datetime(df_all['Issuance Date'], errors='coerce', dayfirst=True)
-            bad_count = df_all['Issuance Date'].isna().sum()
+            # Robust date parsing: try dayfirst, then fallback
+            raw_dates = df_all['Issuance Date'].astype(str).str.strip()
+            parsed = pd.to_datetime(raw_dates, errors='coerce', dayfirst=True)
+            mask = parsed.isna() & raw_dates.notna() & (raw_dates != '')
+            if mask.any():
+                fallback = pd.to_datetime(raw_dates[mask], errors='coerce', dayfirst=False)
+                parsed.loc[mask] = fallback
+            df_all['Issuance Date'] = parsed
+            bad_count = parsed.isna().sum()
             if bad_count > 0:
-                st.warning(f'Failed to parse {bad_count} dates')
+                st.warning(f'❗ Failed to parse {bad_count} Issuance Date values. Please verify formats.')
 
             # Global search filter
             query = st.text_input('🔍 Global Search')
@@ -182,9 +189,10 @@ else:
                 df_all = df_all[df_all.apply(lambda row: row.astype(str).str.contains(query, case=False).any(), axis=1)]
 
             # Date range filter
-            if not df_all['Issuance Date'].isna().all():
-                min_date = df_all['Issuance Date'].min()
-                max_date = df_all['Issuance Date'].max()
+            valid_dates = df_all['Issuance Date'].dropna()
+            if not valid_dates.empty:
+                min_date = valid_dates.min()
+                max_date = valid_dates.max()
                 start = st.date_input('From Date', min_value=min_date, max_value=max_date, value=min_date)
                 end = st.date_input('To Date', min_value=min_date, max_value=max_date, value=max_date)
                 df_all = df_all[(df_all['Issuance Date'] >= pd.to_datetime(start)) & (df_all['Issuance Date'] <= pd.to_datetime(end))]
@@ -199,6 +207,5 @@ else:
                         with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
                             subset.to_excel(writer, index=False, sheet_name='Sheet1')
                         buf.seek(0)
-                        st.download_button('⬇️ Download Data', buf, f'{branch}.xlsx',
-                                            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                        st.download_button('⬇️ Download Data', buf, f'{branch}.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 # End of app
