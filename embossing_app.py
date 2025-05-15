@@ -27,24 +27,21 @@ REQUIRED_COLUMNS = [
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # ------------------ Logging Setup ------------------
-# Configure root logger with an append-only FileHandler
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-# Remove existing handlers
-for h in logger.handlers[:]:
-    logger.removeHandler(h)
-# Create file handler
-fh = logging.FileHandler(LOG_FILE, mode='a')
-formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
-fh.setFormatter(formatter)
-logger.addHandler(fh)
+# Clear existing handlers
+for handler in list(logger.handlers):
+    logger.removeHandler(handler)
+# File handler (append-only)
+file_handler = logging.FileHandler(LOG_FILE, mode='a')
+file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+logger.addHandler(file_handler)
 
 # ------------------ Credentials Handling ------------------
 def load_credentials():
     if os.path.exists(CRED_FILE):
         with open(CRED_FILE, 'r') as f:
             return json.load(f)
-    # Default credentials (demo)
     defaults = {
         'usernames': {
             'admin_user': {'name': 'Admin', 'password': None, 'role': 'admin'},
@@ -60,9 +57,9 @@ def load_credentials():
     return defaults
 
 credentials = load_credentials()
-active = {u: {'name': v['name'], 'password': v['password']} for u, v in credentials['usernames'].items()}
+active_users = {u: {'name': v['name'], 'password': v['password']} for u, v in credentials['usernames'].items()}
 auth = stauth.Authenticate(
-    {'usernames': active},
+    {'usernames': active_users},
     cookie_name='card_app_cookie',
     key='secure_and_unique_key',
     cookie_expiry_days=1
@@ -87,23 +84,29 @@ if status is False:
 elif status is None:
     st.warning('👈 Please login to continue')
 else:
-    logout_button = auth.logout('Logout', 'sidebar', key='logout_btn')
-    if logout_button:
+    # Logout with KeyError handling
+    try:
+        logout_clicked = auth.logout('Logout', 'sidebar', key='logout_btn')
+    except KeyError as e:
+        logger.error(f"Logout KeyError for {username}: {e}")
+        logout_clicked = True
+    if logout_clicked:
         st.experimental_rerun()
+
     st.sidebar.success(f'Welcome {name}')
     user_info = credentials['usernames'].get(username, {})
     role = user_info.get('role', 'viewer')
     logger.info(f"{username} logged in")
 
-    # Define tabs
+    # Tabs
     tabs = []
     if role == 'admin':
         tabs.append('👥 User Management')
     tabs.extend(['📤 Upload Data', '📊 Reports & Analytics', '📝 Application Logs'])
-    selected = st.tabs(tabs)
-    tab_map = {label: tab for label, tab in zip(tabs, selected)}
+    selected_tabs = st.tabs(tabs)
+    tab_map = {label: tab for label, tab in zip(tabs, selected_tabs)}
 
-    # ------------------ User Management ------------------
+    # User Management (Admin only)
     if role == 'admin':
         with tab_map['👥 User Management']:
             st.header('👥 User Management')
@@ -113,17 +116,20 @@ else:
             st.dataframe(df_display, use_container_width=True)
             logger.info(f"{username} viewed user management")
 
-    # ------------------ Upload Data ------------------
+    # Upload Data
     with tab_map['📤 Upload Data']:
         st.header('📤 Upload Card Data')
-        uploaded = st.file_uploader(
+        uploaded_file = st.file_uploader(
             'Upload .xlsx, .xls or .csv',
             type=['xlsx', 'xls', 'csv'],
             help='Ensure columns: ' + ', '.join(REQUIRED_COLUMNS)
         )
-        if uploaded:
+        if uploaded_file:
             try:
-                df_new = pd.read_excel(uploaded, dtype=str) if uploaded.name.lower().endswith(('xlsx','xls')) else pd.read_csv(uploaded, dtype=str)
+                if uploaded_file.name.lower().endswith(('xlsx', 'xls')):
+                    df_new = pd.read_excel(uploaded_file, dtype=str)
+                else:
+                    df_new = pd.read_csv(uploaded_file, dtype=str)
                 df_new.columns = df_new.columns.str.strip()
                 missing = [c for c in REQUIRED_COLUMNS if c not in df_new.columns]
                 if missing:
@@ -133,15 +139,17 @@ else:
                     st.dataframe(df_new.head(5), use_container_width=True)
                     if st.button('Save to Master'):
                         df_new['Delivery Branch Code'] = df_new['Delivery Branch Code'].astype(str).str.strip()
-                        df_new['Issuance Date'] = pd.to_datetime(df_new['Issuance Date'], errors='coerce', dayfirst=True)
+                        df_new['Issuance Date'] = pd.to_datetime(
+                            df_new['Issuance Date'], errors='coerce', dayfirst=True
+                        )
                         df_new['Load Date'] = datetime.today().strftime('%Y-%m-%d')
-                        master = load_master_data()
-                        combined = pd.concat([master, df_new], ignore_index=True)
-                        combined.drop_duplicates(
+                        master_df = load_master_data()
+                        combined_df = pd.concat([master_df, df_new], ignore_index=True)
+                        combined_df.drop_duplicates(
                             subset=['Unmasked Card Number', 'Account Number', 'Delivery Branch Code'],
                             inplace=True
                         )
-                        combined.to_excel(MASTER_FILE, index=False)
+                        combined_df.to_excel(MASTER_FILE, index=False)
                         st.success('✅ Data saved successfully')
                         logger.info(f"{username} saved {len(df_new)} rows")
                         load_master_data.clear()
@@ -149,7 +157,7 @@ else:
                 st.error(f'❌ Error: {e}')
                 logger.error(f"{username} upload error: {e}")
 
-    # ------------------ Reports & Analytics ------------------
+    # Reports & Analytics
     with tab_map['📊 Reports & Analytics']:
         st.header('📊 Reports & Branch Data')
         df_all = load_master_data()
@@ -160,31 +168,35 @@ else:
             st.subheader('Cards per Branch')
             st.dataframe(counts, use_container_width=True)
             branches = sorted(df_all['Delivery Branch Code'].unique())
-            selected_br = st.multiselect('Select Branch(es)', branches, default=branches)
-            view = df_all[df_all['Delivery Branch Code'].isin(selected_br)]
-            min_d, max_d = view['Issuance Date'].min(), view['Issuance Date'].max()
-            start, end = st.date_input('Date range', [min_d, max_d], min_value=min_d, max_value=max_d)
-            view = view[view['Issuance Date'].between(pd.to_datetime(start), pd.to_datetime(end))]
+            selected_branches = st.multiselect('Select Branch(es)', branches, default=branches)
+            filtered_view = df_all[df_all['Delivery Branch Code'].isin(selected_branches)]
+            min_date, max_date = filtered_view['Issuance Date'].min(), filtered_view['Issuance Date'].max()
+            date_range = st.date_input('Date range', [min_date, max_date], min_value=min_date, max_value=max_date)
+            view = filtered_view[
+                filtered_view['Issuance Date'].between(
+                    pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])
+                )
+            ]
             st.subheader('Filtered Data')
             st.dataframe(view, use_container_width=True)
-            now = datetime.now().strftime('%Y%m%d_%H%M%S')
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             buf = io.BytesIO()
             with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
                 view.to_excel(writer, index=False, sheet_name='Data')
             buf.seek(0)
-            file_name = f'cards_export_{now}.xlsx'
-            if st.download_button(label=f'⬇️ Download Export ({now})', data=buf, file_name=file_name,
+            filename = f'cards_export_{timestamp}.xlsx'
+            if st.download_button(label=f'⬇️ Download Export ({timestamp})', data=buf, file_name=filename,
                                   mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'):
-                logger.info(f"{username} downloaded {file_name}")
+                logger.info(f"{username} downloaded {filename}")
 
-    # ------------------ Application Logs (Admin Only) ------------------
+    # Application Logs (Admin only)
     if role == 'admin':
         with tab_map['📝 Application Logs']:
             st.header('📝 Application Logs')
             if os.path.exists(LOG_FILE):
-                log_content = open(LOG_FILE, 'r').read()
-                st.text_area('Log Output', log_content, height=400)
-                if st.download_button('⬇️ Download Log File', data=log_content, file_name='app.log', mime='text/plain'):
+                content = open(LOG_FILE, 'r').read()
+                st.text_area('Log Output', content, height=400)
+                if st.download_button('⬇️ Download Log File', data=content, file_name='app.log', mime='text/plain'):
                     logger.info(f"{username} downloaded log file")
                 logger.info(f"{username} viewed logs")
             else:
