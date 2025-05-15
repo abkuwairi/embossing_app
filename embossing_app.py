@@ -121,16 +121,18 @@ else:
             )
             df_f = df_f[mask]
 
-        # Separate From and To date filters
-min_date = df_f['Issuance Date'].min()
-max_date = df_f['Issuance Date'].max()
-from_date = st.date_input('From date', min_value=min_date, max_value=max_date, value=min_date)
-to_date = st.date_input('To date', min_value=min_date, max_value=max_date, value=max_date)
-# Convert to timestamps for comparison
-start_ts = pd.to_datetime(from_date)
-end_ts = pd.to_datetime(to_date)
-# Filter DataFrame
-df_f = df_f[(df_f['Issuance Date'] >= start_ts) & (df_f['Issuance Date'] <= end_ts)]
+                # Separate From and To date filters
+        min_date = df_f['Issuance Date'].min()
+        max_date = df_f['Issuance Date'].max()
+        from_date = st.date_input('From date', min_value=min_date, max_value=max_date, value=min_date)
+        to_date = st.date_input('To date', min_value=min_date, max_value=max_date, value=max_date)
+        # Convert to timestamps for comparison
+        start_ts = pd.to_datetime(from_date)
+        end_ts = pd.to_datetime(to_date)
+        # Filter DataFrame
+        df_f = df_f[(df_f['Issuance Date'] >= start_ts) & (df_f['Issuance Date'] <= end_ts)]
+
+        branches = sorted(df_f['Delivery Branch Code'].unique())[(df_f['Issuance Date'] >= start_ts) & (df_f['Issuance Date'] <= end_ts)]
 
         branches = sorted(df_f['Delivery Branch Code'].unique())
         for b in branches:
