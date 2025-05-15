@@ -87,7 +87,9 @@ if status is False:
 elif status is None:
     st.warning('👈 Please login to continue')
 else:
-    auth.logout('Logout', 'sidebar')
+    logout_button = auth.logout('Logout', 'sidebar', key='logout_btn')
+    if logout_button:
+        st.experimental_rerun()
     st.sidebar.success(f'Welcome {name}')
     user_info = credentials['usernames'].get(username, {})
     role = user_info.get('role', 'viewer')
