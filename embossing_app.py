@@ -84,14 +84,13 @@ if status is False:
 elif status is None:
     st.warning('👈 Please login to continue')
 else:
-    # Logout with KeyError handling
+    # Logout handling
     try:
         logout_clicked = auth.logout('Logout', 'sidebar', key='logout_btn')
     except KeyError as e:
         logger.error(f"Logout KeyError for {username}: {e}")
         logout_clicked = True
     if logout_clicked:
-        # Stop script on logout to refresh login state
         st.stop()
 
     st.sidebar.success(f'Welcome {name}')
@@ -153,8 +152,8 @@ else:
                         combined_df.to_excel(MASTER_FILE, index=False)
                         st.success('✅ Data saved successfully')
                         logger.info(f"{username} saved {len(df_new)} rows")
+                        # Clear cache so new data appears
                         load_master_data.clear()
-                        st.experimental_rerun()
             except Exception as e:
                 st.error(f'❌ Error: {e}')
                 logger.error(f"{username} upload error: {e}")
