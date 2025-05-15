@@ -7,6 +7,9 @@ import logging
 import streamlit_authenticator as stauth
 from datetime import datetime
 
+# Must be first Streamlit command
+st.set_page_config(page_title='Card Management', layout='wide')
+
 # ------------------ Configuration ------------------
 DATA_DIR = 'data'
 CRED_FILE = os.path.join(DATA_DIR, 'credentials.json')
@@ -70,8 +73,7 @@ def load_master_data() -> pd.DataFrame:
     cols = REQUIRED_COLUMNS + ['Load Date']
     return pd.DataFrame(columns=cols)
 
-# ------------------ UI Setup ------------------
-st.set_page_config(page_title='Card Management', layout='wide')
+# ------------------ UI ------------------
 name, status, username = auth.login('🔐 Login', 'main')
 if status is False:
     st.error('❌ Invalid credentials')
