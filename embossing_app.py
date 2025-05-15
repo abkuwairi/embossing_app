@@ -89,7 +89,9 @@ else:
         branches = sorted(df_all['Delivery Branch Code'].unique())
         for b in branches:
             df_b = df_all[df_all['Delivery Branch Code'] == b]
-            with st.expander(f'Branch {b} ({len(df_b)} rows)'):
+            # Drop duplicates per branch
+            df_b = df_b.drop_duplicates(subset=['Unmasked Card Number', 'Account Number'])
+            with st.expander(f'Branch {b} ({len(df_b)} unique rows)'):
                 st.dataframe(df_b, use_container_width=True)
                 buf = io.BytesIO()
                 with pd.ExcelWriter(buf, engine='xlsxwriter') as w:
