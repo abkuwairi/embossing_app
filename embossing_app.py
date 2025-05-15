@@ -131,7 +131,10 @@ else:
             mn, mx=dff['Issuance Date'].min(),dff['Issuance Date'].max()
             fr=st.date_input('From date',min_value=mn,max_value=mx,value=mn)
             to=st.date_input('To date',min_value=mn,max_value=mx,value=mx)
-            res=dff[(dff['Issuance Date']>=fr)&(dff['Issuance Date']<=to)]
+            # Compare timestamps by converting date inputs to datetime
+start_ts = pd.to_datetime(fr)
+end_ts = pd.to_datetime(to)
+res = dff[(dff['Issuance Date'] >= start_ts) & (dff['Issuance Date'] <= end_ts)]
             st.dataframe(res.reset_index(drop=True),use_container_width=True)
     else:
         st.header('Application Logs')
