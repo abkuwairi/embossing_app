@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import os
 import io
-import json
 import streamlit_authenticator as stauth
 from datetime import datetime
 
@@ -30,7 +29,7 @@ def load_credentials():
     # Set default passwords
     defaults = {'admin_user': 'admin123', 'branch101': 'b101', 'branch102': 'b102'}
     hashed = stauth.Hasher(list(defaults.values())).generate()
-    for (u,p),h in zip(defaults.items(), hashed):
+    for (u,p), h in zip(defaults.items(), hashed):
         creds['usernames'][u]['password'] = h
     json.dump(creds, open(CRED_PATH, 'w'), indent=4)
     return creds
@@ -38,7 +37,7 @@ def load_credentials():
 credentials = load_credentials()
 
 # Build authenticator
-active_users = {u: {'name':info['name'], 'password':info['password']} for u,info in credentials['usernames'].items()}
+active_users = {u: {'name': info['name'], 'password': info['password']} for u, info in credentials['usernames'].items()}
 authenticator = stauth.Authenticate(
     {'usernames': active_users},
     cookie_name='card_app_cookie',
@@ -69,7 +68,7 @@ else:
         df_disp.index.name = 'Username'
         st.sidebar.dataframe(df_disp)
         st.sidebar.subheader('Add New User')
-        with st.sidebar.form('add_user'):  
+        with st.sidebar.form('add_user'):
             new_user = st.text_input('Username')
             full_name = st.text_input('Full Name')
             pwd = st.text_input('Password', type='password')
@@ -121,7 +120,7 @@ else:
             )
             df_f = df_f[mask]
 
-                # Separate From and To date filters
+        # Separate From and To date filters
         min_date = df_f['Issuance Date'].min()
         max_date = df_f['Issuance Date'].max()
         from_date = st.date_input('From date', min_value=min_date, max_value=max_date, value=min_date)
@@ -132,11 +131,10 @@ else:
         # Filter DataFrame
         df_f = df_f[(df_f['Issuance Date'] >= start_ts) & (df_f['Issuance Date'] <= end_ts)]
 
-        branches = sorted(df_f['Delivery Branch Code'].unique())[(df_f['Issuance Date'] >= start_ts) & (df_f['Issuance Date'] <= end_ts)]
-
+        # Display by branch
         branches = sorted(df_f['Delivery Branch Code'].unique())
         for b in branches:
-            df_b = df_f[df_f['Delivery Branch Code']==b]
+            df_b = df_f[df_f['Delivery Branch Code'] == b]
             st.subheader(f'Branch {b} ({len(df_b)} records)')
             st.dataframe(df_b, use_container_width=True)
             buf = io.BytesIO()
@@ -144,6 +142,6 @@ else:
                 df_b.to_excel(w, index=False, sheet_name='Sheet1')
             buf.seek(0)
             st.download_button(f'⬇️ Download Branch {b}', buf, f'branch_{b}.xlsx',
-                                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                               'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     else:
         st.info('ℹ️ No data available. Please upload a report.')
