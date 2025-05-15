@@ -90,33 +90,34 @@ else:
     st.session_state['page'] = page
 
     # Pages
-    if page=='User Management':
+    if page == 'User Management':
         st.header('User Management')
-        df_users = pd.DataFrame.from_dict(credentials['usernames'],orient='index')
+        df_users = pd.DataFrame.from_dict(credentials['usernames'], orient='index')
         df_disp = df_users[['name','role']]
-        df_disp.index.name='username'
-        st.dataframe(df_disp,use_container_width=True)
-    elif page=='Upload Data':
+        df_disp.index.name = 'username'
+        st.dataframe(df_disp, use_container_width=True)
+    elif page == 'Upload Data':
         st.header('Upload Card Data')
-        f=st.file_uploader('Upload .xlsx/.xls/.csv',type=['xlsx','xls','csv'])
+        f = st.file_uploader('Upload .xlsx/.xls/.csv', type=['xlsx','xls','csv'])
         if f:
-            df_new = pd.read_excel(f,dtype=str) if f.name.lower().endswith(('xlsx','xls')) else pd.read_csv(f,dtype=str)
-            df_new.columns=df_new.columns.str.strip()
-            missing=[c for c in REQUIRED_COLUMNS if c not in df_new.columns]
-            if missing: st.error(f'Missing cols: {missing}')
+            df_new = pd.read_excel(f, dtype=str) if f.name.lower().endswith(('xlsx','xls')) else pd.read_csv(f, dtype=str)
+            df_new.columns = df_new.columns.str.strip()
+            missing = [c for c in REQUIRED_COLUMNS if c not in df_new.columns]
+            if missing:
+                st.error(f'Missing cols: {missing}')
             else:
-                st.dataframe(df_new.head(5),use_container_width=True)
+                st.dataframe(df_new.head(5), use_container_width=True)
                 if st.button('Save to Master'):
-                    df_new['Delivery Branch Code']=df_new['Delivery Branch Code'].str.strip()
-                    df_new['Issuance Date']=pd.to_datetime(df_new['Issuance Date'],errors='coerce',dayfirst=True)
-                    df_new['Load Date']=datetime.today().strftime('%Y-%m-%d')
-                    m=load_master_data()
-                    c=pd.concat([m,df_new],ignore_index=True)
-                    c.drop_duplicates(subset=['Unmasked Card Number','Account Number','Delivery Branch Code'],inplace=True)
-                    c.to_excel(MASTER_FILE,index=False)
+                    df_new['Delivery Branch Code'] = df_new['Delivery Branch Code'].str.strip()
+                    df_new['Issuance Date'] = pd.to_datetime(df_new['Issuance Date'], errors='coerce', dayfirst=True)
+                    df_new['Load Date'] = datetime.today().strftime('%Y-%m-%d')
+                    master_df = load_master_data()
+                    combined = pd.concat([master_df, df_new], ignore_index=True)
+                    combined.drop_duplicates(subset=['Unmasked Card Number','Account Number','Delivery Branch Code'], inplace=True)
+                    combined.to_excel(MASTER_FILE, index=False)
                     st.success('Saved')
                     load_master_data.clear()
-    elif page=='Reports & Branch Data':
+    elif page == 'Reports & Branch Data':
         st.header('Reports & Branch Data')
         df = load_master_data()
         if df.empty:
@@ -134,30 +135,14 @@ else:
             mn, mx = dff['Issuance Date'].min(), dff['Issuance Date'].max()
             fr = st.date_input('From date', min_value=mn, max_value=mx, value=mn)
             to = st.date_input('To date', min_value=mn, max_value=mx, value=mx)
-            # Compare timestamps by converting date inputs to datetime
             start_ts = pd.to_datetime(fr)
             end_ts = pd.to_datetime(to)
             res = dff[(dff['Issuance Date'] >= start_ts) & (dff['Issuance Date'] <= end_ts)]
             st.dataframe(res.reset_index(drop=True), use_container_width=True)
-    else:
-            term=st.text_input('Search by name,card,account')
-            dff=df.copy()
-            if term:
-                mask=(dff['Customer Name'].str.contains(term,case=False,na=False)|
-                      dff['Unmasked Card Number'].str.contains(term,na=False)|
-                      dff['Account Number'].str.contains(term,na=False))
-                dff=dff[mask]
-            mn, mx=dff['Issuance Date'].min(),dff['Issuance Date'].max()
-            fr=st.date_input('From date',min_value=mn,max_value=mx,value=mn)
-            to=st.date_input('To date',min_value=mn,max_value=mx,value=mx)
-            # Compare timestamps by converting date inputs to datetime
-start_ts = pd.to_datetime(fr)
-end_ts = pd.to_datetime(to)
-res = dff[(dff['Issuance Date'] >= start_ts) & (dff['Issuance Date'] <= end_ts)]
-            st.dataframe(res.reset_index(drop=True),use_container_width=True)
-    else:
+    elif page == 'Application Logs':
         st.header('Application Logs')
         if os.path.exists(LOG_FILE):
-            txt=open(LOG_FILE).read()
-            st.text_area('Logs',txt,400)
-        else: st.info('No logs.')
+            txt = open(LOG_FILE).read()
+            st.text_area('Logs', txt, height=400)
+        else:
+            st.info('No logs.')
