@@ -172,12 +172,10 @@ else:
             selected_branches = st.multiselect('Select Branch(es)', branches, default=branches)
             filtered_view = df_all[df_all['Delivery Branch Code'].isin(selected_branches)]
             min_date, max_date = filtered_view['Issuance Date'].min(), filtered_view['Issuance Date'].max()
-            date_range = st.date_input('Date range', [min_date, max_date], min_value=min_date, max_value=max_date)
-            view = filtered_view[
-                filtered_view['Issuance Date'].between(
-                    pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])
-                )
-            ]
+            # Separate From and To date pickers
+            from_date = st.date_input('From date', min_value=min_date, max_value=max_date, value=min_date)
+            to_date = st.date_input('To date', min_value=min_date, max_value=max_date, value=max_date)
+            view = filtered_view[(filtered_view['Issuance Date'] >= pd.to_datetime(from_date)) & (filtered_view['Issuance Date'] <= pd.to_datetime(to_date))]
             st.subheader('Filtered Data')
             st.dataframe(view, use_container_width=True)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
