@@ -5,117 +5,108 @@ import io
 import streamlit_authenticator as stauth
 from datetime import datetime
 
-# بيانات الاعتماد المسبقة
+# Must be first command
+st.set_page_config(page_title='Card Management', layout='wide')
+
+# -------------------- Authentication Setup --------------------
 usernames = ['admin_user', 'branch101', 'branch102']
-names = ['Admin', '101', '102']
-# كلمات المرور النصية
+names = ['Admin', 'Branch 101', 'Branch 102']
 plain_passwords = ['admin123', 'b101', 'b102']
-# توليد الهاشات في وقت التشغيل لضمان التوافق
 hashed_passwords = stauth.Hasher(plain_passwords).generate()
-
-# تحضير قاموس الاعتماد
 credentials = {'usernames': {}}
-for uname, full_name, pwd in zip(usernames, names, hashed_passwords):
-    credentials['usernames'][uname] = {'name': full_name, 'password': pwd}
-
-# إنشاء المصادق
+for uname, name_, pwd in zip(usernames, names, hashed_passwords):
+    credentials['usernames'][uname] = {'name': name_, 'password': pwd}
 authenticator = stauth.Authenticate(
     credentials,
-    'embossing_app_cookie_v2',  # استخدام اسم كوكي جديد
-    'abcd1234abcd1234abcd1234abcd1234_v2',
+    cookie_name='card_app_cookie',
+    key='secure_key_123',
     cookie_expiry_days=1
 )
-
-# واجهة تسجيل الدخول
-name, authentication_status, username = authenticator.login('🔐 تسجيل الدخول', 'main')
-
-if authentication_status is False:
-    st.error('❌ اسم المستخدم أو كلمة المرور غير صحيحة')
-elif authentication_status is None:
-    st.warning('👈 الرجاء تسجيل الدخول للاستمرار')
+name, auth_status, username = authenticator.login('🔐 Login', 'main')
+if auth_status is False:
+    st.error('❌ Invalid username or password')
+elif auth_status is None:
+    st.warning('👈 Please log in to continue')
 else:
-    # تسجيل الخروج
-    authenticator.logout('تسجيل الخروج', 'sidebar')
-    st.sidebar.success(f'مرحباً {name}')
+    authenticator.logout('Logout', 'sidebar')
+    st.sidebar.success(f'Welcome {name}')
+    # Determine role
+    is_admin = username == 'admin_user'
 
-    # دور المستخدم
-    user_role = 'uploader' if username == 'admin_user' else 'viewer'
-    st.title('📋 نظام تحميل ومتابعة بطاقات Embossing')
-
-    # إعداد المسارات
+    # -------------------- Data Paths --------------------
     DATA_DIR = 'data'
     MASTER_FILE = os.path.join(DATA_DIR, 'master_data.xlsx')
     os.makedirs(DATA_DIR, exist_ok=True)
 
-    # رفع الملفات
-    if user_role == 'uploader':
-        uploaded_file = st.file_uploader('📁 الرجاء رفع تقرير البطاقات اليومي (Excel فقط)', type=['xlsx'])
-        if uploaded_file:
-            try:
-                df_new = pd.read_excel(uploaded_file, dtype=str)
-                df_new['Load Date'] = datetime.today().strftime('%Y-%m-%d')
+    # -------------------- User Management --------------------
+    if is_admin:
+        st.sidebar.markdown('---')
+        st.sidebar.header('Admin: User Management')
+        df_users = pd.DataFrame.from_dict(credentials['usernames'], orient='index')
+        df_users_display = df_users[['name']].rename(columns={'name':'Full Name'})
+        df_users_display.index.name = 'Username'
+        st.sidebar.dataframe(df_users_display)
 
-                if os.path.exists(MASTER_FILE):
-                    df_old = pd.read_excel(MASTER_FILE, dtype=str)
-                    df_combined = pd.concat([df_old, df_new], ignore_index=True)
+    # -------------------- Upload Section --------------------
+    st.title('📤 Upload Daily Card Report')
+    if is_admin or username.startswith('branch'):
+        with st.form('upload_form'):
+            file = st.file_uploader('Choose Excel (.xlsx) file', type=['xlsx'], help='Daily card report')
+            submit = st.form_submit_button('Save to Master')
+            if submit:
+                if not file:
+                    st.error('Please select a file')
                 else:
-                    df_combined = df_new
+                    df_new = pd.read_excel(file, dtype=str)
+                    df_new['Load Date'] = datetime.today().strftime('%Y-%m-%d')
+                    # Append to master
+                    if os.path.exists(MASTER_FILE):
+                        df_old = pd.read_excel(MASTER_FILE, dtype=str)
+                        df_comb = pd.concat([df_old, df_new], ignore_index=True)
+                    else:
+                        df_comb = df_new
+                    df_comb.to_excel(MASTER_FILE, index=False)
+                    st.success('✅ Master data updated')
 
-                df_combined.to_excel(MASTER_FILE, index=False)
-                st.success('✅ تم تحديث قاعدة البيانات بنجاح.')
-            except Exception as e:
-                st.error(f'❌ خطأ أثناء رفع الملف: {e}')
-
-    # عرض البيانات
+    # -------------------- Reports & Branch Data --------------------
+    st.title('📊 Reports & Branch Data')
     if os.path.exists(MASTER_FILE):
         df_all = pd.read_excel(MASTER_FILE, dtype=str)
         df_all['Delivery Branch Code'] = df_all['Delivery Branch Code'].astype(str).str.strip()
         df_all = df_all.drop_duplicates(subset=['Unmasked Card Number', 'Account Number'])
         df_all['Issuance Date'] = pd.to_datetime(df_all['Issuance Date'], errors='coerce', dayfirst=True)
 
-        # بحث نصي
-        search_term = st.text_input('🔍 ابحث باسم الزبون أو رقم البطاقة أو الحساب:')
-        for col in ['Customer Name', 'Account Number', 'Unmasked Card Number']:
-            df_all[col] = df_all[col].fillna('').astype(str)
+        # Search bar
+        search_term = st.text_input('🔍 Search by customer, card, or account')
+        df_filtered = df_all.copy()
         if search_term:
             mask = (
-                df_all['Customer Name'].str.contains(search_term, case=False, na=False) |
-                df_all['Account Number'].str.contains(search_term, na=False) |
-                df_all['Unmasked Card Number'].str.contains(search_term, na=False)
+                df_filtered['Customer Name'].str.contains(search_term, case=False, na=False) |
+                df_filtered['Account Number'].str.contains(search_term, na=False) |
+                df_filtered['Unmasked Card Number'].str.contains(search_term, na=False)
             )
-            df_all = df_all[mask]
+            df_filtered = df_filtered[mask]
 
-        # فلترة بالتواريخ
-        if not df_all['Issuance Date'].isna().all():
-            min_date = df_all['Issuance Date'].min()
-            max_date = df_all['Issuance Date'].max()
-            start_date = st.date_input('📆 من تاريخ إصدار', min_value=min_date, max_value=max_date, value=min_date)
-            end_date = st.date_input('📆 إلى تاريخ إصدار', min_value=min_date, max_value=max_date, value=max_date)
-            # تحويل المدخلات إلى Timestamp
-            start_ts = pd.to_datetime(start_date)
-            end_ts = pd.to_datetime(end_date)
-            df_all = df_all[(df_all['Issuance Date'] >= start_ts) & (df_all['Issuance Date'] <= end_ts)]
+        # Date filters
+        min_d = df_filtered['Issuance Date'].min()
+        max_d = df_filtered['Issuance Date'].max()
+        from_date = st.date_input('From date', value=min_d, min_value=min_d, max_value=max_d)
+        to_date = st.date_input('To date', value=max_d, min_value=min_d, max_value=max_d)
+        start_ts = pd.to_datetime(from_date)
+        end_ts = pd.to_datetime(to_date)
+        df_filtered = df_filtered[(df_filtered['Issuance Date'] >= start_ts) & (df_filtered['Issuance Date'] <= end_ts)]
 
-        # عرض حسب الفروع
-        branches = sorted(df_all['Delivery Branch Code'].unique())
-        for branch in branches:
-            df_branch = df_all[df_all['Delivery Branch Code'] == branch]
-            with st.expander(f'📌 بيانات الفرع: {branch}', expanded=False):
-                st.dataframe(df_branch, use_container_width=True)
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    df_branch.to_excel(writer, index=False, sheet_name='Sheet1')
-                    workbook = writer.book
-                    worksheet = writer.sheets['Sheet1']
-                    fmt = workbook.add_format({'num_format': '@'})
-                    worksheet.set_column('A:A', None, fmt)
-                    worksheet.set_column('B:B', None, fmt)
-                output.seek(0)
-                st.download_button(
-                    label=f'⬇️ تحميل بيانات الفرع {branch}',
-                    data=output,
-                    file_name=f'branch_{branch}_cards.xlsx',
-                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                )
+        # Display by branch
+        branches = sorted(df_filtered['Delivery Branch Code'].unique())
+        for b in branches:
+            df_b = df_filtered[df_filtered['Delivery Branch Code'] == b]
+            st.subheader(f'Branch {b} ({len(df_b)} records)')
+            st.dataframe(df_b, use_container_width=True)
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine='xlsxwriter') as w:
+                df_b.to_excel(w, index=False, sheet_name='Sheet1')
+            buf.seek(0)
+            st.download_button(f'⬇️ Download Branch {b}', buf, f'branch_{b}.xlsx',
+                               'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     else:
-        st.info('ℹ️ لم يتم تحميل أي بيانات بعد.')
+        st.info('ℹ️ No data available. Please upload a report.')
