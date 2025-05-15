@@ -57,9 +57,11 @@ authenticator = stauth.Authenticate(
     cookie_expiry_days=1
 )
 
-# ------------------ Caching Data Loads ------------------
-@st.cache_data
+# ------------------ Data Loading ------------------
 def load_master_data():
+    """
+    Load the master_data.xlsx file fresh on each call to avoid caching issues.
+    """
     if os.path.exists(MASTER_FILE):
         df = pd.read_excel(MASTER_FILE, dtype=str)
         df.columns = df.columns.str.strip()
@@ -74,14 +76,12 @@ elif auth_status is None:
     st.warning('👈 Please login to continue')
 else:
     # Greet user
-    if username in credentials['usernames']:
-        st.sidebar.success(f"Welcome {credentials['usernames'][username]['name']}")
-    else:
-        st.sidebar.error('Error: Username not found')
+    user_info = credentials['usernames'].get(username, {})
+    st.sidebar.success(f"Welcome {user_info.get('name', username)}")
     authenticator.logout('Logout', 'sidebar', key='logout_btn')
 
     # Permissions
-    role = credentials['usernames'][username]['role']
+    role = user_info.get('role', 'viewer')
     can_upload = role in ['admin', 'management', 'uploader']
     can_manage = role == 'admin'
 
@@ -99,7 +99,6 @@ else:
     # ------------------ User Management ------------------
     if selected_tab == '👥 User Management':
         st.header('👥 User Management')
-        st.subheader('All Users')
         df_users = pd.DataFrame.from_dict(credentials['usernames'], orient='index')
         df_disp = df_users[['name', 'email', 'phone', 'branch_code', 'branch_name', 'role', 'is_active']]
         df_disp.index.name = 'username'
@@ -127,7 +126,7 @@ else:
                         'name': full_name,
                         'email': email,
                         'phone': phone,
-                        'branch_code': branch_code,
+                        'branch_code': branch_code.strip(),
                         'branch_name': branch_name,
                         'role': role_choice,
                         'is_active': is_active,
@@ -154,7 +153,9 @@ else:
                     if missing:
                         st.error(f'Missing columns: {missing}')
                     else:
+                        df_new = df_new.copy()
                         df_new['Load Date'] = datetime.today().strftime('%Y-%m-%d')
+
                         df_master = load_master_data()
                         df_comb = pd.concat([df_master, df_new], ignore_index=True)
                         df_comb.to_excel(MASTER_FILE, index=False)
@@ -183,12 +184,11 @@ else:
                 max_date = df_all['Issuance Date'].max()
                 start = st.date_input('From Date', min_value=min_date, max_value=max_date, value=min_date)
                 end = st.date_input('To Date', min_value=min_date, max_value=max_date, value=max_date)
-                start_ts, end_ts = pd.to_datetime(start), pd.to_datetime(end)
-                df_all = df_all[(df_all['Issuance Date'] >= start_ts) & (df_all['Issuance Date'] <= end_ts)]
+                df_all = df_all[(df_all['Issuance Date'] >= pd.to_datetime(start)) & (df_all['Issuance Date'] <= pd.to_datetime(end))]
 
             # Display by branch
-            for branch in sorted(df_all['Delivery Branch Code'].unique()):
-                subset = df_all[df_all['Delivery Branch Code'] == branch]
+            for branch in sorted(df_all['Delivery Branch Code'].str.strip().unique()):
+                subset = df_all[df_all['Delivery Branch Code'].str.strip() == str(branch)]
                 with st.expander(f'Branch {branch} ({len(subset)} rows)'):
                     st.dataframe(subset, use_container_width=True)
                     if can_upload:
