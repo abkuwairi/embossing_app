@@ -6,6 +6,7 @@ import streamlit_authenticator as stauth
 from datetime import datetime
 
 # ─── Paths ────────────────────────────────────────────────────────────────────────
+
 data_dir    = 'data'
 cred_file   = os.path.join(data_dir, 'credentials.json')
 master_file = os.path.join(data_dir, 'master_data.xlsx')
@@ -29,25 +30,18 @@ if not os.path.exists(cred_file):
                 "password": stauth.Hasher(["admin123"]).generate()[0]
             }
         }
-        # no hashed_passwords key yet
+        # no top-level hashed_passwords key
     }
     with open(cred_file, 'w') as f:
         json.dump(default, f, indent=4)
 
 credentials = json.load(open(cred_file))
 
-# Derive hashed_passwords dynamically if missing
-if "hashed_passwords" in credentials:
-    hashed_passwords = credentials["hashed_passwords"]
-else:
-    hashed_passwords = {
-        user: info.get("password", "")
-        for user, info in credentials.get("usernames", {}).items()
-    }
-
 # ─── Prepare Authenticator ─────────────────────────────────────────────────────────
+# Build lists aligned: usernames, display names, and hashed passwords
 user_list = list(credentials.get("usernames", {}).keys())
-names     = [info.get("name", user) for user, info in credentials.get("usernames", {}).items()]
+names = [credentials["usernames"][user].get("name", user) for user in user_list]
+hashed_passwords = [credentials["usernames"][user].get("password", "") for user in user_list]
 
 authenticator = stauth.Authenticate(
     names,
@@ -170,10 +164,5 @@ else:
 
     # ─── Permissions & the rest of your app’s logic ──────────────────────────────
     auth_upload   = role in ['admin', 'management', 'uploader']
-    auth_download = True  # or role in [...]
-    
+    auth_download = True  # or role in [...]  
     # ←── INSERT your existing data-loading, reporting, download, search, etc. here ─→
-    # e.g.:
-    # if auth_upload:
-    #     upload_file = st.file_uploader("Upload master data", type=["xlsx"])
-    #     ...
