@@ -3,146 +3,214 @@ import pandas as pd
 import os
 import io
 import json
-import logging
 import streamlit_authenticator as stauth
 from datetime import datetime
 
-# Must be first Streamlit command
-st.set_page_config(page_title='Card Management', layout='wide')
+# Paths
 
-# ------------------ Configuration ------------------
-DATA_DIR = 'data'
-CRED_FILE = os.path.join(DATA_DIR, 'credentials.json')
-MASTER_FILE = os.path.join(DATA_DIR, 'master_data.xlsx')
-LOG_FILE = os.path.join(DATA_DIR, 'app.log')
-REQUIRED_COLUMNS = [
-    'Unmasked Card Number',
-    'Customer Name',
-    'Account Number',
-    'Issuance Date',
-    'Delivery Branch Code'
-]
+data_dir = 'data'
+cred_file = os.path.join(data_dir, 'credentials.json')
+master_file = os.path.join(data_dir, 'master_data.xlsx')
 
 # Ensure data directory exists
-os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(data_dir, exist_ok=True)
 
-# ------------------ Logging Setup ------------------
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-for handler in list(logger.handlers):
-    logger.removeHandler(handler)
-file_handler = logging.FileHandler(LOG_FILE, mode='a')
-file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
-logger.addHandler(file_handler)
+# Default credentials with roles
+default_credentials = {
+    'usernames': {
+        'admin_user': {'name':'Admin','password':None,'email':'admin@example.com','phone':'','branch_code':'','branch_name':'','is_active':True,'role':'admin'},
+        'branch101': {'name':'Branch101','password':None,'email':'','phone':'','branch_code':'101','branch_name':'Branch 101','is_active':True,'role':'viewer'},
+        'branch102': {'name':'Branch102','password':None,'email':'','phone':'','branch_code':'102','branch_name':'Branch 102','is_active':True,'role':'viewer'}
+    }
+}
+plain_defaults = {'admin_user':'admin123','branch101':'b101','branch102':'b102'}
 
-# ------------------ Credentials Handling ------------------
+# Load or initialize credentials
 def load_credentials():
-    if os.path.exists(CRED_FILE):
-        return json.load(open(CRED_FILE))
-    defaults = {'usernames': {'admin_user': {'name': 'Admin', 'role': 'admin', 'password': None},
-                              'branch101': {'name': 'Branch101', 'role': 'viewer', 'password': None},
-                              'branch102': {'name': 'Branch102', 'role': 'viewer', 'password': None}}}
-    plain = {'admin_user': 'admin123', 'branch101': 'b101', 'branch102': 'b102'}
-    for u,v in defaults['usernames'].items():
-        v['password'] = stauth.Hasher([plain[u]]).generate()[0]
-    json.dump(defaults, open(CRED_FILE,'w'), indent=4)
-    return defaults
+    if os.path.exists(cred_file):
+        with open(cred_file,'r') as f:
+            return json.load(f)
+    creds = default_credentials
+    for user, data in creds['usernames'].items():
+        pwd = plain_defaults.get(user, 'password123')
+        data['password'] = stauth.Hasher([pwd]).generate()[0]
+    with open(cred_file, 'w') as f:
+        json.dump(creds, f, indent=4)
+    return creds
 
 credentials = load_credentials()
-active_users = {u: {'name': v['name'], 'password': v['password']} for u,v in credentials['usernames'].items()}
-auth = stauth.Authenticate({'usernames': active_users}, cookie_name='cookie', key='key', cookie_expiry_days=1)
 
-# ------------------ Data Loading ------------------
-@st.cache_data
-def load_master_data():
-    if os.path.exists(MASTER_FILE):
-        df = pd.read_excel(MASTER_FILE, dtype=str)
-        df.columns = df.columns.str.strip()
-        df['Delivery Branch Code'] = df['Delivery Branch Code'].astype(str).str.strip()
-        df['Issuance Date'] = pd.to_datetime(df['Issuance Date'], errors='coerce')
-        return df
-    return pd.DataFrame(columns=REQUIRED_COLUMNS+['Load Date'])
+# Prepare authenticator
+active_users = {u: {'name':info['name'], 'password':info['password']} for u,info in credentials['usernames'].items() if info.get('is_active')}
+authenticator = stauth.Authenticate({'usernames': active_users}, cookie_name='embossing_app_cookie', key='abcd1234abcd1234abcd1234abcd1234', cookie_expiry_days=1)
 
-# ------------------ UI ------------------
-name, status, username = auth.login('🔐 Login','main')
-if status is False:
-    st.error('Invalid credentials')
-elif status is None:
-    st.warning('Please login')
+# Login UI
+name, auth_status, username = authenticator.login('🔐 تسجيل الدخول', 'main')
+if auth_status is False:
+    st.error('❌ اسم المستخدم أو كلمة المرور غير صحيحة')
+elif auth_status is None:
+    st.warning('👈 الرجاء تسجيل الدخول للاستمرار')
 else:
-    # Logout
-    try:
-        if auth.logout('Logout','sidebar',key='logout'): st.stop()
-    except Exception:
-        st.stop()
-    st.sidebar.success(f'Welcome {name}')
-    user_role = credentials['usernames'][username]['role']
-    logger.info(f"{username} logged in")
+    # Greet user
+    st.sidebar.success(f"مرحباً {credentials['usernames'][username]['name']}")
+    authenticator.logout('تسجيل الخروج', 'sidebar')
 
-    # Navigation
-    options = []
-    if user_role=='admin': options.append('User Management')
-    options += ['Upload Data','Reports & Branch Data','Application Logs']
-    if 'page' not in st.session_state or st.session_state['page'] not in options:
-        st.session_state['page'] = options[0]
-    st.sidebar.title('Menu')
-    page = st.sidebar.radio('', options, index=options.index(st.session_state['page']))
-    st.session_state['page'] = page
+    # Determine role and permissions
+    role = credentials['usernames'][username].get('role', 'viewer')
+    can_up = role in ['admin', 'management', 'uploader']
+    can_dn = role in ['admin', 'management', 'uploader']
 
-    # Pages
-    if page == 'User Management':
-        st.header('User Management')
-        df_users = pd.DataFrame.from_dict(credentials['usernames'], orient='index')
-        df_disp = df_users[['name','role']]
-        df_disp.index.name = 'username'
-        st.dataframe(df_disp, use_container_width=True)
-    elif page == 'Upload Data':
-        st.header('Upload Card Data')
-        f = st.file_uploader('Upload .xlsx/.xls/.csv', type=['xlsx','xls','csv'])
-        if f:
-            df_new = pd.read_excel(f, dtype=str) if f.name.lower().endswith(('xlsx','xls')) else pd.read_csv(f, dtype=str)
-            df_new.columns = df_new.columns.str.strip()
-            missing = [c for c in REQUIRED_COLUMNS if c not in df_new.columns]
-            if missing:
-                st.error(f'Missing cols: {missing}')
-            else:
-                st.dataframe(df_new.head(5), use_container_width=True)
-                if st.button('Save to Master'):
-                    df_new['Delivery Branch Code'] = df_new['Delivery Branch Code'].str.strip()
-                    df_new['Issuance Date'] = pd.to_datetime(df_new['Issuance Date'], errors='coerce', dayfirst=True)
+    st.title('📋 نظام تحميل ومتابعة بطاقات Embossing')
+    # Main tabs
+    if role in ['admin', 'management']:
+        main_tabs = st.tabs(['👥 إدارة المستخدمين', '🗂️ تقارير البطاقات'])
+        um_tab, report_tab = main_tabs
+    else:
+        report_tab = st.tabs(['🗂️ تقارير البطاقات'])[0]
+        um_tab = None
+
+    # User Management
+    if um_tab:
+        with um_tab:
+            st.header('👥 إدارة المستخدمين')
+            tabs = st.tabs(['عرض المستخدمين', 'إضافة مستخدم', 'تعديل/حظر'])
+            # List users
+            with tabs[0]:
+                df_users = pd.DataFrame.from_dict(credentials['usernames'], orient='index')
+                df_disp = df_users[['name', 'email', 'phone', 'branch_code', 'branch_name', 'role', 'is_active']]
+                df_disp.index.name = 'username'
+                st.dataframe(df_disp)
+            # Add user
+            with tabs[1]:
+                st.subheader('إضافة مستخدم جديد')
+                with st.form('add_user_form'):
+                    new_id = st.text_input('Username')
+                    full_name = st.text_input('الاسم الكامل')
+                    email = st.text_input('البريد الإلكتروني')
+                    phone = st.text_input('رقم الهاتف')
+                    br_code = st.text_input('كود الفرع')
+                    br_name = st.text_input('اسم الفرع')
+                    pwd = st.text_input('كلمة المرور', type='password')
+                    is_active = st.checkbox('مفعل', value=True)
+                    # Define role options based on current role
+                    roles = ['viewer', 'uploader']
+                    if role == 'admin':
+                        roles = ['admin', 'management'] + roles
+                    elif role == 'management':
+                        roles = ['management'] + roles
+                    selected_role = st.selectbox('نوع المستخدم', roles)
+                    if st.form_submit_button('إضافة'):
+                        if new_id in credentials['usernames']:
+                            st.error('المستخدم موجود بالفعل')
+                        elif selected_role == 'admin' and role != 'admin':
+                            st.error('غير مسموح بإنشاء مستخدم إدمن')
+                        else:
+                            credentials['usernames'][new_id] = {
+                                'name': full_name,
+                                'email': email,
+                                'phone': phone,
+                                'branch_code': br_code,
+                                'branch_name': br_name,
+                                'role': selected_role,
+                                'is_active': is_active,
+                                'password': stauth.Hasher([pwd]).generate()[0]
+                            }
+                            with open(cred_file, 'w') as f:
+                                json.dump(credentials, f, indent=4)
+                            st.success(f'تم إضافة المستخدم {new_id}')
+            # Edit/Deactivate user
+            with tabs[2]:
+                st.subheader('تعديل/حظر مستخدم')
+                user_list = list(credentials['usernames'].keys())
+                sel_user = st.selectbox('اختر مستخدم', user_list)
+                info = credentials['usernames'][sel_user]
+                with st.form('edit_user_form'):
+                    fn2 = st.text_input('الاسم الكامل', value=info['name'])
+                    em2 = st.text_input('البريد الإلكتروني', value=info['email'])
+                    ph2 = st.text_input('رقم الهاتف', value=info['phone'])
+                    bc2 = st.text_input('كود الفرع', value=info['branch_code'])
+                    bn2 = st.text_input('اسم الفرع', value=info['branch_name'])
+                    active2 = st.checkbox('مفعل', value=info['is_active'])
+                    # Define role options based on current role
+                    role_opts = ['viewer', 'uploader']
+                    if role == 'admin':
+                        role_opts = ['admin', 'management'] + role_opts
+                    elif role == 'management':
+                        role_opts = ['management'] + role_opts
+                    # Ensure current role is in options
+                    if info['role'] not in role_opts:
+                        role_opts.insert(0, info['role'])
+                    sel_role2 = st.selectbox('نوع المستخدم', role_opts, index=role_opts.index(info['role']))
+                    cpwd = st.checkbox('تغيير كلمة المرور')
+                    if cpwd:
+                        new_pwd = st.text_input('كلمة المرور الجديدة', type='password')
+                    if st.form_submit_button('حفظ'):
+                        if sel_role2 == 'admin' and role != 'admin':
+                            st.error('غير مسموح بتعيين دور إدمن')
+                        else:
+                            info.update({
+                                'name': fn2,
+                                'email': em2,
+                                'phone': ph2,
+                                'branch_code': bc2,
+                                'branch_name': bn2,
+                                'role': sel_role2,
+                                'is_active': active2
+                            })
+                            if cpwd and new_pwd:
+                                info['password'] = stauth.Hasher([new_pwd]).generate()[0]
+                            credentials['usernames'][sel_user] = info
+                            with open(cred_file, 'w') as f:
+                                json.dump(credentials, f, indent=4)
+                            st.success('تم حفظ التعديلات')
+
+    # Card Reports Section
+    with report_tab:
+        st.header('🗂️ تقارير البطاقات')
+        # Upload
+        if can_up:
+            uploaded = st.file_uploader('📁 رفع تقرير البطاقات', type=['xlsx'])
+            if uploaded:
+                try:
+                    df_new = pd.read_excel(uploaded, dtype=str)
                     df_new['Load Date'] = datetime.today().strftime('%Y-%m-%d')
-                    master_df = load_master_data()
-                    combined = pd.concat([master_df, df_new], ignore_index=True)
-                    combined.drop_duplicates(subset=['Unmasked Card Number','Account Number','Delivery Branch Code'], inplace=True)
-                    combined.to_excel(MASTER_FILE, index=False)
-                    st.success('Saved')
-                    load_master_data.clear()
-    elif page == 'Reports & Branch Data':
-        st.header('Reports & Branch Data')
-        df = load_master_data()
-        if df.empty:
-            st.info('No data.')
+                    if os.path.exists(master_file):
+                        df_old = pd.read_excel(master_file, dtype=str)
+                        df_combined = pd.concat([df_old, df_new], ignore_index=True)
+                    else:
+                        df_combined = df_new
+                    df_combined.to_excel(master_file, index=False)
+                    st.success('✅ تم تحديث قاعدة البيانات بنجاح.')
+                except Exception as e:
+                    st.error(f'❌ خطأ أثناء رفع الملف: {e}')
+        # View/Download
+        if os.path.exists(master_file):
+            df_all = pd.read_excel(master_file, dtype=str)
+            df_all.columns = df_all.columns.str.strip()
+            if 'Delivery Branch Code' not in df_all.columns:
+                st.error(f"عمود 'Delivery Branch Code' غير موجود. الأعمدة المتاحة: {list(df_all.columns)}")
+            else:
+                df_all['Delivery Branch Code'] = df_all['Delivery Branch Code'].str.strip()
+                df_all = df_all.drop_duplicates(subset=['Unmasked Card Number', 'Account Number'])
+                df_all['Issuance Date'] = pd.to_datetime(df_all['Issuance Date'], errors='coerce', dayfirst=True)
+                term = st.text_input('🔍 بحث')
+                if term:
+                    df_all = df_all[df_all.apply(lambda r: r.astype(str).str.contains(term, case=False).any(), axis=1)]
+                if not df_all['Issuance Date'].isna().all():
+                    mn, mx = df_all['Issuance Date'].min(), df_all['Issuance Date'].max()
+                    sd = st.date_input('📆 من تاريخ', min_value=mn, max_value=mx, value=mn)
+                    ed = st.date_input('📆 إلى تاريخ', min_value=mn, max_value=mx, value=mx)
+                    sd_ts, ed_ts = pd.to_datetime(sd), pd.to_datetime(ed)
+                    df_all = df_all[(df_all['Issuance Date'] >= sd_ts) & (df_all['Issuance Date'] <= ed_ts)]
+                for br in sorted(df_all['Delivery_BRANCH Code'] if False else df_all['Delivery Branch Code'].unique()):
+                    df_br = df_all[df_all['Delivery Branch Code'] == br]
+                    with st.expander(f'📌 فرع {br}'):
+                        st.dataframe(df_br, use_container_width=True)
+                        if can_dn:
+                            buf = io.BytesIO()
+                            with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+                                df_br.to_excel(writer, index=False, sheet_name='Sheet1')
+                            buf.seek(0)
+                            st.download_button(f'⬇️ تحميل فرع {br}', buf, f'branch_{br}.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         else:
-            term = st.text_input('Search by name, card, account')
-            dff = df.copy()
-            if term:
-                mask = (
-                    dff['Customer Name'].str.contains(term, case=False, na=False) |
-                    dff['Unmasked Card Number'].str.contains(term, na=False) |
-                    dff['Account Number'].str.contains(term, na=False)
-                )
-                dff = dff[mask]
-            mn, mx = dff['Issuance Date'].min(), dff['Issuance Date'].max()
-            fr = st.date_input('From date', min_value=mn, max_value=mx, value=mn)
-            to = st.date_input('To date', min_value=mn, max_value=mx, value=mx)
-            start_ts = pd.to_datetime(fr)
-            end_ts = pd.to_datetime(to)
-            res = dff[(dff['Issuance Date'] >= start_ts) & (dff['Issuance Date'] <= end_ts)]
-            st.dataframe(res.reset_index(drop=True), use_container_width=True)
-    elif page == 'Application Logs':
-        st.header('Application Logs')
-        if os.path.exists(LOG_FILE):
-            txt = open(LOG_FILE).read()
-            st.text_area('Logs', txt, height=400)
-        else:
-            st.info('No logs.')
+            st.info('ℹ️ لا توجد بيانات بعد.')
