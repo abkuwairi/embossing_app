@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import os
-import io
 import json
 import streamlit_authenticator as stauth
 from datetime import datetime
@@ -42,13 +41,13 @@ if "hashed_passwords" in credentials:
     hashed_passwords = credentials["hashed_passwords"]
 else:
     hashed_passwords = {
-        user: info["password"]
+        user: info.get("password", "")
         for user, info in credentials.get("usernames", {}).items()
     }
 
-# Prepare for streamlit_authenticator
-user_list = list(credentials["usernames"].keys())
-names     = [info["name"] for info in credentials["usernames"].values()]
+# ─── Prepare Authenticator ─────────────────────────────────────────────────────────
+user_list = list(credentials.get("usernames", {}).keys())
+names     = [info.get("name", user) for user, info in credentials.get("usernames", {}).items()]
 
 authenticator = stauth.Authenticate(
     names,
@@ -59,7 +58,7 @@ authenticator = stauth.Authenticate(
     cookie_expiry_days=1
 )
 
-# ─── Login Flow ──────────────────────────────────────────────────────────────────
+# ─── Login Flow ─────────────────────────────────────────────────────────────────────
 name, auth_status, role = authenticator.login("Login", "main")
 
 if auth_status is False:
