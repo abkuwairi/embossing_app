@@ -49,10 +49,11 @@ authenticator = stauth.Authenticate(
 # ─── Login Flow ─────────────────────────────────────────────────────────────────────
 name, auth_status, username = authenticator.login("Login", "main")
 
-if auth_status is False:
+# Fixed comparison operators here ↓
+if auth_status == False:  # Changed from 'is' to '=='
     st.error("اسم المستخدم أو كلمة المرور خاطئة")
     st.stop()
-elif auth_status is None:
+elif auth_status is None:  # Keep 'is' for None check
     st.warning("الرجاء إدخال اسم المستخدم وكلمة المرور")
     st.stop()
 else:
