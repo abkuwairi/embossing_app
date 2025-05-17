@@ -38,22 +38,16 @@ if not os.path.exists(cred_file):
 credentials = json.load(open(cred_file))
 
 # ─── Prepare Authenticator ─────────────────────────────────────────────────────────
-# Build lists aligned: usernames, display names, and hashed passwords
-user_list = list(credentials.get("usernames", {}).keys())
-names = [credentials["usernames"][user].get("name", user) for user in user_list]
-hashed_passwords = [credentials["usernames"][user].get("password", "") for user in user_list]
-
+# New API: pass credentials dict instead of separate lists
 authenticator = stauth.Authenticate(
-    names,
-    user_list,
-    hashed_passwords,
+    credentials=credentials,
     cookie_name="embossing_app",
     key="some_random_key_123",
     cookie_expiry_days=1
 )
 
 # ─── Login Flow ─────────────────────────────────────────────────────────────────────
-name, auth_status, role = authenticator.login("Login", "main")
+name, auth_status, username = authenticator.login("Login", "main")
 
 if auth_status is False:
     st.error("اسم المستخدم أو كلمة المرور خاطئة")
@@ -62,8 +56,11 @@ elif auth_status is None:
     st.warning("الرجاء إدخال اسم المستخدم وكلمة المرور")
     st.stop()
 else:
+    # Map username back to role
+    role = credentials["usernames"][username]["role"]
+    display_name = name  # name is display name returned
     authenticator.logout("Logout", "sidebar")
-    st.sidebar.success(f"مرحباً {name} ({role})")
+    st.sidebar.success(f"مرحباً {display_name} ({role})")
 
     # ─── User management for admin/management ────────────────────────────────────
     if role in ['admin', 'management']:
