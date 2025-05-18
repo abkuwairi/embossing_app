@@ -20,7 +20,6 @@ SECRET_KEY = os.getenv('STREAMLIT_AUTH_KEY', 'fallback_secret_key')
 DATA_DIR = 'data'
 CRED_FILE = os.path.join(DATA_DIR, 'credentials.json')
 MASTER_FILE = os.path.join(DATA_DIR, 'master_data.xlsx')
-
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # --- Helper Functions ---
@@ -28,7 +27,6 @@ def load_credentials():
     if os.path.exists(CRED_FILE):
         with open(CRED_FILE, 'r') as f:
             return json.load(f)
-    # initialize default credentials
     default = {
         'usernames': {
             'admin_user': {'name': 'Admin', 'password': None, 'email': 'admin@example.com', 'phone': '', 'branch_code': '', 'branch_name': '', 'is_active': True, 'role': ROLES['ADMIN']},
@@ -37,7 +35,6 @@ def load_credentials():
         }
     }
     plain = {'admin_user': 'admin123', 'branch101': 'b101', 'branch102': 'b102'}
-    # hash defaults
     for user, info in default['usernames'].items():
         pwd = plain.get(user, 'password123')
         info['password'] = stauth.Hasher([pwd]).generate()[0]
@@ -63,7 +60,6 @@ def import_master_data(uploaded_file):
     df_concat.to_excel(MASTER_FILE, index=False)
     st.success('✅ البيانات محدثة بنجاح!')
 
-
 # --- Load credentials and Auth ---
 credentials = load_credentials()
 authenticator = stauth.Authenticate(
@@ -88,20 +84,26 @@ else:
     role = user_info.get('role', ROLES['VIEWER'])
     user_branch = user_info.get('branch_code', '')
 
-    st.title('📋 نظام تحميل ومتابعة بطاقات Embossing')
+    st.title('📋 نظام تسليم ومتابعة بطاقات Embossing')
+
+    # --- Sidebar Navigation ---
+    menu = []
+    if role in [ROLES['ADMIN'], ROLES['DEPT']]:
+        menu.append('👥 إدارة المستخدمين')
+    menu.append('📁 رفع بيانات البطاقات')
+    menu.append('📊 التقارير والبحث')
+    selection = st.sidebar.radio('القائمة', menu)
 
     # --- User Management Section ---
-    if role in [ROLES['ADMIN'], ROLES['DEPT']]:
+    if selection == '👥 إدارة المستخدمين':
         st.header('👥 إدارة المستخدمين')
         tab1, tab2, tab3 = st.tabs(['عرض المستخدمين', 'إضافة مستخدم', 'تعديل/حظر'])
-
         # List users
         with tab1:
             df_users = pd.DataFrame.from_dict(credentials['usernames'], orient='index')
             display = df_users[['name', 'email', 'phone', 'branch_code', 'branch_name', 'role', 'is_active']]
             display.index.name = 'username'
             st.dataframe(display)
-
         # Add user
         with tab2:
             st.subheader('إضافة مستخدم جديد')
@@ -139,7 +141,6 @@ else:
                         }
                         save_credentials(credentials)
                         st.success(f'تم إضافة المستخدم {u}')
-
         # Edit or Block user
         with tab3:
             st.subheader('تعديل/حظر مستخدم')
@@ -171,55 +172,56 @@ else:
                         save_credentials(credentials)
                         st.success('تم تحديث بيانات المستخدم')
 
-    # --- Card Upload & Reporting ---
-    can_upload = role in [ROLES['ADMIN'], ROLES['DEPT'], ROLES['UPLOADER']]
-    if can_upload:
+    # --- Card Upload Section ---
+    elif selection == '📁 رفع بيانات البطاقات':
         st.header('📁 رفع بيانات البطاقات')
-        uploaded = st.file_uploader('', type=['csv', 'xlsx'])
-        if uploaded:
-            try:
-                import_master_data(uploaded)
-            except Exception as e:
-                st.error(f'❌ خطأ أثناء الاستيراد: {e}')
-
-    # Display master data
-    if os.path.exists(MASTER_FILE):
-        df_all = pd.read_excel(MASTER_FILE, dtype=str)
-        df_all['Delivery Branch Code'] = df_all['Delivery Branch Code'].str.strip()
-        df_all = df_all.drop_duplicates(['Unmasked Card Number', 'Account Number'])
-        df_all['Issuance Date'] = pd.to_datetime(df_all['Issuance Date'], errors='coerce', dayfirst=True)
-
-        term = st.text_input('🔍 بحث (رقم البطاقة أو الحساب)')
-        if term:
-            mask = (
-                df_all['Unmasked Card Number'].str.contains(term, case=False, na=False) |
-                df_all['Account Number'].str.contains(term, case=False, na=False)
-            )
-            df_all = df_all[mask]
-
-        # Date filtering
-        if not df_all['Issuance Date'].isna().all():
-            mn, mx = df_all['Issuance Date'].min(), df_all['Issuance Date'].max()
-            sd = st.date_input('من', min_value=mn, max_value=mx, value=mn)
-            ed = st.date_input('إلى', min_value=mn, max_value=mx, value=mx)
-            df_all = df_all[(df_all['Issuance Date'] >= pd.to_datetime(sd)) & (df_all['Issuance Date'] <= pd.to_datetime(ed))]
-
-        # Filter by viewer branch
-        if role == ROLES['VIEWER'] and user_branch:
-            df_all = df_all[df_all['Delivery Branch Code'] == user_branch]
-
-        if df_all.empty:
-            st.warning('❗ لا توجد نتائج مطابقة')
+        if role in [ROLES['ADMIN'], ROLES['DEPT'], ROLES['UPLOADER']]:
+            uploaded = st.file_uploader('اختر ملف CSV أو XLSX', type=['csv', 'xlsx'])
+            if uploaded:
+                try:
+                    import_master_data(uploaded)
+                except Exception as e:
+                    st.error(f'❌ خطأ أثناء الاستيراد: {e}')
         else:
-            for br in sorted(df_all['Delivery Branch Code'].unique()):
-                df_b = df_all[df_all['Delivery Branch Code'] == br]
-                with st.expander(f'فرع {br}'):
-                    st.dataframe(df_b, use_container_width=True)
-                    if can_upload:
-                        buf = io.BytesIO()
-                        with pd.ExcelWriter(buf, engine='xlsxwriter') as w:
-                            df_b.to_excel(w, index=False)
-                        buf.seek(0)
-                        st.download_button(f'⬇️ تحميل {br}', buf, f'{br}.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    else:
-        st.info('ℹ️ لا توجد بيانات بعد')
+            st.warning('🚫 لا تمتلك صلاحية لرفع الملفات.')
+
+    # --- Reports & Search Section ---
+    elif selection == '📊 التقارير والبحث':
+        st.header('📊 التقارير والبحث')
+        if os.path.exists(MASTER_FILE):
+            df_all = pd.read_excel(MASTER_FILE, dtype=str)
+            df_all['Delivery Branch Code'] = df_all['Delivery Branch Code'].str.strip()
+            df_all = df_all.drop_duplicates(['Unmasked Card Number', 'Account Number'])
+            df_all['Issuance Date'] = pd.to_datetime(df_all['Issuance Date'], errors='coerce', dayfirst=True)
+
+            term = st.text_input('🔍 بحث (رقم البطاقة أو الحساب)')
+            if term:
+                mask = (
+                    df_all['Unmasked Card Number'].str.contains(term, case=False, na=False) |
+                    df_all['Account Number'].str.contains(term, case=False, na=False)
+                )
+                df_all = df_all[mask]
+
+            if not df_all['Issuance Date'].isna().all():
+                mn, mx = df_all['Issuance Date'].min(), df_all['Issuance Date'].max()
+                sd = st.date_input('من', min_value=mn, max_value=mx, value=mn)
+                ed = st.date_input('إلى', min_value=mn, max_value=mx, value=mx)
+                df_all = df_all[(df_all['Issuance Date'] >= pd.to_datetime(sd)) & (df_all['Issuance Date'] <= pd.to_datetime(ed))]
+
+            if role == ROLES['VIEWER'] and user_branch:
+                df_all = df_all[df_all['Delivery Branch Code'] == user_branch]
+
+            if df_all.empty:
+                st.warning('❗ لا توجد نتائج مطابقة')
+            else:
+                for br in sorted(df_all['Delivery Branch Code'].unique()):
+                    df_b = df_all[df_all['Delivery Branch Code'] == br]
+                    with st.expander(f'فرع {br}'):
+                        st.dataframe(df_b, use_container_width=True)
+                        if role in [ROLES['ADMIN'], ROLES['DEPT'], ROLES['UPLOADER']]:
+                            buf = io.BytesIO()
+                            with pd.ExcelWriter(buf, engine='xlsxwriter') as w:
+                                df_b.to_excel(w, index=False)
+                            buf.seek(0)\ n                            st.download_button(f'⬇️ تحميل {br}', buf, f'{br}.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        else:
+            st.info('ℹ️ لا توجد بيانات بعد')
