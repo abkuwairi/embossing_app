@@ -13,13 +13,13 @@ ROLES = {
     'UPLOADER': 'uploader',
     'VIEWER': 'viewer',
 }
-
 SECRET_KEY = os.getenv('STREAMLIT_AUTH_KEY', 'fallback_secret_key')
 
 # --- Paths ---
 DATA_DIR = 'data'
 CRED_FILE = os.path.join(DATA_DIR, 'credentials.json')
 MASTER_FILE = os.path.join(DATA_DIR, 'master_data.xlsx')
+
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # --- Helper Functions ---
@@ -49,9 +49,11 @@ def save_credentials(creds):
 
 
 def import_master_data(uploaded_file):
+    # Read uploaded file
     ext = uploaded_file.name.lower().rsplit('.', 1)[-1]
     df_new = pd.read_csv(uploaded_file) if ext == 'csv' else pd.read_excel(uploaded_file)
     df_new['Load Date'] = datetime.today().strftime('%Y-%m-%d')
+    # Append to master
     if os.path.exists(MASTER_FILE):
         df_existing = pd.read_excel(MASTER_FILE, dtype=str)
         df_concat = pd.concat([df_existing, df_new], ignore_index=True)
@@ -59,6 +61,7 @@ def import_master_data(uploaded_file):
         df_concat = df_new
     df_concat.to_excel(MASTER_FILE, index=False)
     st.success('✅ البيانات محدثة بنجاح!')
+    return df_new
 
 # --- Load credentials and Auth ---
 credentials = load_credentials()
@@ -122,21 +125,16 @@ else:
                 if role == ROLES['ADMIN']:
                     options = [ROLES['ADMIN'], ROLES['DEPT'], ROLES['UPLOADER'], ROLES['VIEWER']]
                 sel_role = st.selectbox('نوع المستخدم', options)
-                submitted = st.form_submit_button('إضافة')
-                if submitted:
+                if st.form_submit_button('إضافة'):
                     if u in credentials['usernames']:
                         st.error('المستخدم موجود بالفعل')
                     elif sel_role == ROLES['ADMIN'] and role != ROLES['ADMIN']:
                         st.error('غير مسموح بإنشاء مستخدم إدمن')
                     else:
                         credentials['usernames'][u] = {
-                            'name': nm,
-                            'email': em,
-                            'phone': ph,
-                            'branch_code': bc,
-                            'branch_name': bn,
-                            'role': sel_role,
-                            'is_active': is_act,
+                            'name': nm, 'email': em, 'phone': ph,
+                            'branch_code': bc, 'branch_name': bn,
+                            'role': sel_role, 'is_active': is_act,
                             'password': stauth.Hasher([pwd]).generate()[0]
                         }
                         save_credentials(credentials)
@@ -154,32 +152,31 @@ else:
                 bn2 = st.text_input('اسم الفرع', value=info['branch_name'])
                 is2 = st.checkbox('مفعل', value=info['is_active'])
                 roles_opt = [ROLES['VIEWER'], ROLES['UPLOADER']]
-                if role in [ROLES['ADMIN'], ROLES['DEPT']]:
-                    roles_opt.extend([ROLES['DEPT'], ROLES['ADMIN']])
+                if role in [ROLES['ADMIN'], ROLES['DEPT']]: roles_opt.extend([ROLES['DEPT'], ROLES['ADMIN']])
                 rl2 = st.selectbox('نوع المستخدم', roles_opt, index=roles_opt.index(info['role']))
                 ch = st.checkbox('تغيير كلمة المرور')
-                if ch:
-                    npw = st.text_input('كلمة المرور الجديدة', type='password')
-                sub2 = st.form_submit_button('حفظ')
-                if sub2:
+                if ch: npw = st.text_input('كلمة المرور الجديدة', type='password')
+                if st.form_submit_button('حفظ'):
                     if rl2 == ROLES['ADMIN'] and role != ROLES['ADMIN']:
                         st.error('غير مسموح بتعيين دور إدمن')
                     else:
                         info.update({'name': nm2, 'email': em2, 'phone': ph2, 'branch_code': bc2, 'branch_name': bn2, 'role': rl2, 'is_active': is2})
-                        if ch:
-                            info['password'] = stauth.Hasher([npw]).generate()[0]
+                        if ch: info['password'] = stauth.Hasher([npw]).generate()[0]
                         credentials['usernames'][sel] = info
                         save_credentials(credentials)
                         st.success('تم تحديث بيانات المستخدم')
 
     # --- Card Upload Section ---
-    elif selection == '📁 رفع بيانات البطاقات':
+    elif selection == '📁 رفع بيانات البطاكات':
         st.header('📁 رفع بيانات البطاقات')
         if role in [ROLES['ADMIN'], ROLES['DEPT'], ROLES['UPLOADER']]:
             uploaded = st.file_uploader('اختر ملف CSV أو XLSX', type=['csv', 'xlsx'])
             if uploaded:
                 try:
-                    import_master_data(uploaded)
+                    df_new = import_master_data(uploaded)
+                    st.subheader('معاينة البيانات المضافة')
+                    st.dataframe(df_new)
+                    st.info('✅ تم رفع البيانات، انتقل إلى التقارير لعرض جميع السجلات.')
                 except Exception as e:
                     st.error(f'❌ خطأ أثناء الاستيراد: {e}')
         else:
@@ -195,3 +192,42 @@ else:
             df_all['Issuance Date'] = pd.to_datetime(df_all['Issuance Date'], errors='coerce', dayfirst=True)
 
             term = st.text_input('🔍 بحث (رقم البطاقة أو الحساب)')
+            if term:
+                mask = (
+                    df_all['Unmasked Card Number'].str.contains(term, case=False, na=False) |
+                    df_all['Account Number'].str.contains(term, case=False, na=False)
+                )
+                df_all = df_all[mask]
+
+            # Date range filter
+            if not df_all['Issuance Date'].isna().all():
+                mn = df_all['Issuance Date'].min().date()
+                mx = df_all['Issuance Date'].max().date()
+                date_from = st.date_input('من', value=mn, min_value=mn, max_value=mx)
+                date_to = st.date_input('إلى', value=mx, min_value=mn, max_value=mx)
+                df_all = df_all[(df_all['Issuance Date'].dt.date >= date_from) & (df_all['Issuance Date'].dt.date <= date_to)]
+
+            # Branch-level filter for viewers
+            if role == ROLES['VIEWER'] and user_branch:
+                df_all = df_all[df_all['Delivery Branch Code'] == user_branch]
+
+            if df_all.empty:
+                st.warning('❗ لا توجد نتائج مطابقة')
+            else:
+                for br in sorted(df_all['Delivery Branch Code'].unique()):
+                    df_b = df_all[df_all['Delivery Branch Code'] == br]
+                    with st.expander(f'فرع {br}'):
+                        st.dataframe(df_b, use_container_width=True)
+                        if role in [ROLES['ADMIN'], ROLES['DEPT'], ROLES['UPLOADER']]:
+                            buf = io.BytesIO()
+                            with pd.ExcelWriter(buf, engine='xlsxwriter') as w:
+                                df_b.to_excel(w, index=False)
+                            buf.seek(0)
+                            st.download_button(
+                                f'⬇️ تحميل {br}',
+                                buf,
+                                f'{br}.xlsx',
+                                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                            )
+        else:
+            st.info('ℹ️ لا توجد بيانات بعد')
