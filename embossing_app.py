@@ -195,33 +195,3 @@ else:
             df_all['Issuance Date'] = pd.to_datetime(df_all['Issuance Date'], errors='coerce', dayfirst=True)
 
             term = st.text_input('🔍 بحث (رقم البطاقة أو الحساب)')
-            if term:
-                mask = (
-                    df_all['Unmasked Card Number'].str.contains(term, case=False, na=False) |
-                    df_all['Account Number'].str.contains(term, case=False, na=False)
-                )
-                df_all = df_all[mask]
-
-            if not df_all['Issuance Date'].isna().all():
-                mn, mx = df_all['Issuance Date'].min(), df_all['Issuance Date'].max()
-                sd = st.date_input('من', min_value=mn, max_value=mx, value=mn)
-                ed = st.date_input('إلى', min_value=mn, max_value=mx, value=mx)
-                df_all = df_all[(df_all['Issuance Date'] >= pd.to_datetime(sd)) & (df_all['Issuance Date'] <= pd.to_datetime(ed))]
-
-            if role == ROLES['VIEWER'] and user_branch:
-                df_all = df_all[df_all['Delivery Branch Code'] == user_branch]
-
-            if df_all.empty:
-                st.warning('❗ لا توجد نتائج مطابقة')
-            else:
-                for br in sorted(df_all['Delivery Branch Code'].unique()):
-                    df_b = df_all[df_all['Delivery Branch Code'] == br]
-                    with st.expander(f'فرع {br}'):
-                        st.dataframe(df_b, use_container_width=True)
-                        if role in [ROLES['ADMIN'], ROLES['DEPT'], ROLES['UPLOADER']]:
-                            buf = io.BytesIO()
-                            with pd.ExcelWriter(buf, engine='xlsxwriter') as w:
-                                df_b.to_excel(w, index=False)
-                            buf.seek(0)\ n                            st.download_button(f'⬇️ تحميل {br}', buf, f'{br}.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        else:
-            st.info('ℹ️ لا توجد بيانات بعد')
