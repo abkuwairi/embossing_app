@@ -23,7 +23,6 @@ MASTER_FILE = os.path.join(DATA_DIR, 'master_data.xlsx')
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # --- Helper Functions ---
-
 def save_credentials(creds):
     """Save credentials dict to JSON file."""
     with open(CRED_FILE, 'w') as f:
@@ -39,34 +38,19 @@ def load_credentials():
     default = {
         'usernames': {
             'admin_user': {
-                'name': 'Admin',
-                'email': 'admin@example.com',
-                'phone': '',
-                'branch_code': '',
-                'branch_name': '',
-                'is_active': True,
-                'role': ROLES['ADMIN'],
-                'password': None,
+                'name': 'Admin', 'email': 'admin@example.com', 'phone': '',
+                'branch_code': '', 'branch_name': '', 'is_active': True,
+                'role': ROLES['ADMIN'], 'password': None,
             },
             'branch101': {
-                'name': 'Branch101',
-                'email': '',
-                'phone': '',
-                'branch_code': '101',
-                'branch_name': 'Branch 101',
-                'is_active': True,
-                'role': ROLES['VIEWER'],
-                'password': None,
+                'name': 'Branch101', 'email': '', 'phone': '',
+                'branch_code': '101', 'branch_name': 'Branch 101', 'is_active': True,
+                'role': ROLES['VIEWER'], 'password': None,
             },
             'branch102': {
-                'name': 'Branch102',
-                'email': '',
-                'phone': '',
-                'branch_code': '102',
-                'branch_name': 'Branch 102',
-                'is_active': True,
-                'role': ROLES['VIEWER'],
-                'password': None,
+                'name': 'Branch102', 'email': '', 'phone': '',
+                'branch_code': '102', 'branch_name': 'Branch 102', 'is_active': True,
+                'role': ROLES['VIEWER'], 'password': None,
             },
         }
     }
@@ -97,8 +81,6 @@ def import_master_data(uploaded_file):
     return df_new
 
 # --- Main ---
-
-# Authentication setup
 credentials = load_credentials()
 authenticator = stauth.Authenticate(
     credentials,
@@ -121,7 +103,7 @@ role = user.get('role', ROLES['VIEWER'])
 
 st.title('📋 نظام إدارة وتسليم البطاقات')
 
-# Sidebar navigation
+# --- Sidebar Navigation ---
 sections = []
 if role in [ROLES['ADMIN'], ROLES['DEPT']]:
     sections.append('👥 إدارة المستخدمين')
@@ -129,8 +111,7 @@ sections.append('📁 رفع بيانات البطاقات')
 sections.append('📊 التقارير والبحث')
 section = st.sidebar.radio('القائمة', sections)
 
-# --- Sections Implementation ---
-
+# --- Sections ---
 # User Management
 if section == '👥 إدارة المستخدمين':
     st.header('👥 إدارة المستخدمين')
@@ -140,7 +121,7 @@ if section == '👥 إدارة المستخدمين':
     with tab1:
         df_users = pd.DataFrame.from_dict(credentials['usernames'], orient='index')
         df_users.index.name = 'username'
-        st.dataframe(df_users[['name','email','phone','branch_code','branch_name','role','is_active']])
+        st.dataframe(df_users[['name', 'email', 'phone', 'branch_code', 'branch_name', 'role', 'is_active']])
 
     # Add User
     with tab2:
@@ -154,7 +135,6 @@ if section == '👥 إدارة المستخدمين':
             bn = st.text_input('اسم الفرع')
             pwd = st.text_input('كلمة المرور', type='password')
             is_act = st.checkbox('مفعل', True)
-            # Role options based on current role
             opts = [ROLES['VIEWER'], ROLES['UPLOADER']]
             if role == ROLES['DEPT']:
                 opts.append(ROLES['DEPT'])
@@ -175,7 +155,7 @@ if section == '👥 إدارة المستخدمين':
                     save_credentials(credentials)
                     st.success('تم إضافة المستخدم بنجاح')
 
-    # Edit/Block User
+    # Edit / Block User
     with tab3:
         st.subheader('تعديل/حظر مستخدم')
         sel = st.selectbox('اختر مستخدم', list(credentials['usernames'].keys()))
@@ -187,13 +167,15 @@ if section == '👥 إدارة المستخدمين':
             bc2 = st.text_input('كود الفرع', info['branch_code'])
             bn2 = st.text_input('اسم الفرع', info['branch_name'])
             is2 = st.checkbox('مفعل', info['is_active'])
-            # Role options
+            # Role options for editing
             roles_opt = [ROLES['VIEWER'], ROLES['UPLOADER']]
             if role == ROLES['ADMIN']:
                 roles_opt.extend([ROLES['DEPT'], ROLES['ADMIN']])
             elif role == ROLES['DEPT']:
                 roles_opt.append(ROLES['DEPT'])
-            rl2 = st.selectbox('نوع المستخدم', roles_opt, index=roles_opt.index(info['role']))
+            # Determine default index without error
+            default_idx = roles_opt.index(info['role']) if info['role'] in roles_opt else 0
+            rl2 = st.selectbox('نوع المستخدم', roles_opt, index=default_idx)
             ch2 = st.checkbox('تغيير كلمة المرور')
             npw = None
             if ch2:
@@ -204,7 +186,15 @@ if section == '👥 إدارة المستخدمين':
                 if role != ROLES['ADMIN'] and info['role'] == ROLES['ADMIN']:
                     st.error('🚫 غير مسموح بتعديل مستخدم إدمن')
                 else:
-                    info.update({'name': nm2, 'email': em2, 'phone': ph2, 'branch_code': bc2, 'branch_name': bn2, 'role': rl2, 'is_active': is2})
+                    info.update({
+                        'name': nm2,
+                        'email': em2,
+                        'phone': ph2,
+                        'branch_code': bc2,
+                        'branch_name': bn2,
+                        'role': rl2,
+                        'is_active': is2,
+                    })
                     if ch2 and npw:
                         info['password'] = stauth.Hasher([npw]).generate()[0]
                     save_credentials(credentials)
@@ -228,7 +218,7 @@ elif section == '📊 التقارير والبحث':
     if os.path.exists(MASTER_FILE):
         df = pd.read_excel(MASTER_FILE, dtype=str)
         df['Issuance Date'] = pd.to_datetime(df['Issuance Date'], dayfirst=True, errors='coerce')
-        df = df.drop_duplicates(subset=['Unmasked Card Number','Account Number','Delivery Branch Code','Issuance Date'])
+        df = df.drop_duplicates(subset=['Unmasked Card Number', 'Account Number', 'Delivery Branch Code', 'Issuance Date'])
         term = st.text_input('🔍 بحث')
         if term:
             df = df[df['Unmasked Card Number'].str.contains(term, na=False) | df['Account Number'].str.contains(term, na=False)]
