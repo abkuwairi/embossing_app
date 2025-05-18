@@ -29,21 +29,9 @@ def load_credentials():
             return json.load(f)
     default = {
         'usernames': {
-            'admin_user': {
-                'name': 'Admin', 'password': None, 'email': 'admin@example.com',
-                'phone': '', 'branch_code': '', 'branch_name': '', 'is_active': True,
-                'role': ROLES['ADMIN'],
-            },
-            'branch101': {
-                'name': 'Branch101', 'password': None, 'email': '', 'phone': '',
-                'branch_code': '101', 'branch_name': 'Branch 101', 'is_active': True,
-                'role': ROLES['VIEWER'],
-            },
-            'branch102': {
-                'name': 'Branch102', 'password': None, 'email': '', 'phone': '',
-                'branch_code': '102', 'branch_name': 'Branch 102', 'is_active': True,
-                'role': ROLES['VIEWER'],
-            },
+            'admin_user': {'name': 'Admin', 'password': None, 'email': 'admin@example.com', 'phone': '', 'branch_code': '', 'branch_name': '', 'is_active': True, 'role': ROLES['ADMIN']},
+            'branch101': {'name': 'Branch101', 'password': None, 'email': '', 'phone': '', 'branch_code': '101', 'branch_name': 'Branch 101', 'is_active': True, 'role': ROLES['VIEWER']},
+            'branch102': {'name': 'Branch102', 'password': None, 'email': '', 'phone': '', 'branch_code': '102', 'branch_name': 'Branch 102', 'is_active': True, 'role': ROLES['VIEWER']},
         }
     }
     plain = {'admin_user': 'admin123', 'branch101': 'b101', 'branch102': 'b102'}
@@ -106,7 +94,66 @@ else:
     # إدارة المستخدمين
     if choice == '👥 إدارة المستخدمين':
         st.header('👥 إدارة المستخدمين')
-        # user management code here...
+        tab1, tab2, tab3 = st.tabs(['عرض المستخدمين', 'إضافة مستخدم', 'تعديل/حظر'])
+        # List users
+        with tab1:
+            df_users = pd.DataFrame.from_dict(credentials['usernames'], orient='index')
+            display = df_users[['name', 'email', 'phone', 'branch_code', 'branch_name', 'role', 'is_active']]
+            display.index.name = 'username'
+            st.dataframe(display)
+        # Add user
+        with tab2:
+            st.subheader('إضافة مستخدم جديد')
+            with st.form('add_form'):
+                u = st.text_input('Username')
+                nm = st.text_input('الاسم الكامل')
+                em = st.text_input('البريد الإلكتروني')
+                ph = st.text_input('رقم الهاتف')
+                bc = st.text_input('كود الفرع')
+                bn = st.text_input('اسم الفرع')
+                pwd = st.text_input('كلمة المرور', type='password')
+                is_act = st.checkbox('مفعل', value=True)
+                options_role = [ROLES['VIEWER'], ROLES['UPLOADER']]
+                if role == ROLES['DEPT']:
+                    options_role.append(ROLES['DEPT'])
+                if role == ROLES['ADMIN']:
+                    options_role = [ROLES['ADMIN'], ROLES['DEPT'], ROLES['UPLOADER'], ROLES['VIEWER']]
+                sel_role = st.selectbox('نوع المستخدم', options_role)
+                if st.form_submit_button('إضافة'):
+                    if u in credentials['usernames']:
+                        st.error('المستخدم موجود بالفعل')
+                    elif sel_role == ROLES['ADMIN'] and role != ROLES['ADMIN']:
+                        st.error('غير مسموح بإنشاء مستخدم إدمن')
+                    else:
+                        credentials['usernames'][u] = {'name': nm, 'email': em, 'phone': ph, 'branch_code': bc, 'branch_name': bn, 'role': sel_role, 'is_active': is_act, 'password': stauth.Hasher([pwd]).generate()[0]}
+                        save_credentials(credentials)
+                        st.success(f'تم إضافة المستخدم {u}')
+        # Edit/Block user
+        with tab3:
+            st.subheader('تعديل/حظر مستخدم')
+            sel = st.selectbox('اختر مستخدم', list(credentials['usernames'].keys()))
+            info = credentials['usernames'][sel]
+            with st.form('edit_form'):
+                nm2 = st.text_input('الاسم الكامل', value=info['name'])
+                em2 = st.text_input('البريد الإلكتروني', value=info['email'])
+                ph2 = st.text_input('رقم الهاتف', value=info['phone'])
+                bc2 = st.text_input('كود الفرع', value=info['branch_code'])
+                bn2 = st.text_input('اسم الفرع', value=info['branch_name'])
+                is2 = st.checkbox('مفعل', value=info['is_active'])
+                roles_opt = [ROLES['VIEWER'], ROLES['UPLOADER']]
+                if role in [ROLES['ADMIN'], ROLES['DEPT']]: roles_opt.extend([ROLES['DEPT'], ROLES['ADMIN']])
+                rl2 = st.selectbox('نوع المستخدم', roles_opt, index=roles_opt.index(info['role']))
+                ch = st.checkbox('تغيير كلمة المرور')
+                if ch: npw = st.text_input('كلمة المرور الجديدة', type='password')
+                if st.form_submit_button('حفظ'):
+                    if rl2 == ROLES['ADMIN'] and role != ROLES['ADMIN']:
+                        st.error('غير مسموح بتعيين دور إدمن')
+                    else:
+                        info.update({'name': nm2, 'email': em2, 'phone': ph2, 'branch_code': bc2, 'branch_name': bn2, 'role': rl2, 'is_active': is2})
+                        if ch: info['password'] = stauth.Hasher([npw]).generate()[0]
+                        credentials['usernames'][sel] = info
+                        save_credentials(credentials)
+                        st.success('تم تحديث بيانات المستخدم')
 
     # رفع البيانات
     elif choice == '📁 رفع بيانات البطاقات':
@@ -128,28 +175,20 @@ else:
         st.header('📊 التقارير والبحث')
         if os.path.exists(MASTER_FILE):
             df = pd.read_excel(MASTER_FILE, dtype=str)
-            # Convert dates first
             df['Issuance Date'] = pd.to_datetime(df['Issuance Date'], dayfirst=True, errors='coerce')
-            # Remove exact duplicates but keep those with different dates
             df = df.drop_duplicates(subset=['Unmasked Card Number', 'Account Number', 'Delivery Branch Code', 'Issuance Date'])
-
             term = st.text_input('🔍 بحث')
             if term:
                 mask = df['Unmasked Card Number'].str.contains(term, na=False) | df['Account Number'].str.contains(term, na=False)
                 df = df[mask]
-
-            # Date range filter
             if not df['Issuance Date'].isna().all():
                 mn = df['Issuance Date'].min().date()
                 mx = df['Issuance Date'].max().date()
                 start = st.date_input('من', mn, mn, mx)
-                end   = st.date_input('إلى', mx, mn, mx)
+                end = st.date_input('إلى', mx, mn, mx)
                 df = df[(df['Issuance Date'].dt.date >= start) & (df['Issuance Date'].dt.date <= end)]
-
-            # Branch-level filter for viewer
             if role == ROLES['VIEWER'] and branch:
                 df = df[df['Delivery Branch Code'] == branch]
-
             if df.empty:
                 st.warning('❗ لا توجد نتائج')
             else:
@@ -158,11 +197,6 @@ else:
                     buffer = io.BytesIO()
                     df.to_excel(buffer, index=False)
                     buffer.seek(0)
-                    st.download_button(
-                        '⬇️ تحميل النتائج',
-                        buffer,
-                        'results.xlsx',
-                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                    )
+                    st.download_button('⬇️ تحميل النتائج', buffer, 'results.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         else:
             st.info('ℹ️ لا توجد بيانات بعد')
