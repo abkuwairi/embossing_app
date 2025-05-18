@@ -6,7 +6,7 @@ import json
 import streamlit_authenticator as stauth
 from datetime import datetime
 
-# --- Constants and Env Vars ---
+# --- Constants ---
 ROLES = {
     'ADMIN': 'admin',
     'DEPT': 'management',
@@ -15,7 +15,7 @@ ROLES = {
 }
 SECRET_KEY = os.getenv('STREAMLIT_AUTH_KEY', 'fallback_secret_key')
 
-# --- Paths ---
+# --- File Paths ---
 DATA_DIR = 'data'
 CRED_FILE = os.path.join(DATA_DIR, 'credentials.json')
 MASTER_FILE = os.path.join(DATA_DIR, 'master_data.xlsx')
@@ -23,10 +23,19 @@ MASTER_FILE = os.path.join(DATA_DIR, 'master_data.xlsx')
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # --- Helper Functions ---
+
+def save_credentials(creds):
+    """Save credentials dict to JSON file."""
+    with open(CRED_FILE, 'w') as f:
+        json.dump(creds, f, indent=4)
+
+
 def load_credentials():
+    """Load credentials from file or initialize defaults."""
     if os.path.exists(CRED_FILE):
         with open(CRED_FILE, 'r') as f:
             return json.load(f)
+    # Default users
     default = {
         'usernames': {
             'admin_user': {
@@ -62,12 +71,7 @@ def load_credentials():
         }
     }
     # Default passwords
-    plain = {
-        'admin_user': 'admin123',
-        'branch101': 'b101',
-        'branch102': 'b102',
-    }
-    # Hash passwords
+    plain = {'admin_user': 'admin123', 'branch101': 'b101', 'branch102': 'b102'}
     for user, info in default['usernames'].items():
         pwd = plain.get(user, 'password123')
         info['password'] = stauth.Hasher([pwd]).generate()[0]
@@ -75,12 +79,8 @@ def load_credentials():
     return default
 
 
-def save_credentials(creds):
-    with open(CRED_FILE, 'w') as f:
-        json.dump(creds, f, indent=4)
-
-
 def import_master_data(uploaded_file):
+    """Read uploaded CSV/XLSX, append to master file, and return new records."""
     ext = uploaded_file.name.lower().rsplit('.', 1)[-1]
     if ext == 'csv':
         df_new = pd.read_csv(uploaded_file, dtype=str)
@@ -96,13 +96,15 @@ def import_master_data(uploaded_file):
     st.success('✅ البيانات محدثة بنجاح!')
     return df_new
 
-# --- Authentication ---
+# --- Main ---
+
+# Authentication setup
 credentials = load_credentials()
 authenticator = stauth.Authenticate(
     credentials,
     cookie_name='embossing_cookie',
     key=SECRET_KEY,
-    cookie_expiry_days=1
+    cookie_expiry_days=1,
 )
 name, auth_status, username = authenticator.login('🔐 تسجيل الدخول', 'main')
 if auth_status is False:
@@ -117,25 +119,30 @@ authenticator.logout('تسجيل الخروج', 'sidebar')
 user = credentials['usernames'][username]
 role = user.get('role', ROLES['VIEWER'])
 
-st.title('📋 نظام تسليم ومتابعة بطاقات Embossing')
+st.title('📋 نظام إدارة وتسليم البطاقات')
 
-# --- Sidebar Menu ---
-menu = []
+# Sidebar navigation
+sections = []
 if role in [ROLES['ADMIN'], ROLES['DEPT']]:
-    menu.append('👥 إدارة المستخدمين')
-menu.append('📁 رفع بيانات البطاقات')
-menu.append('📊 التقارير والبحث')
-section = st.sidebar.radio('القائمة', menu)
+    sections.append('👥 إدارة المستخدمين')
+sections.append('📁 رفع بيانات البطاقات')
+sections.append('📊 التقارير والبحث')
+section = st.sidebar.radio('القائمة', sections)
 
-# --- User Management ---
+# --- Sections Implementation ---
+
+# User Management
 if section == '👥 إدارة المستخدمين':
     st.header('👥 إدارة المستخدمين')
     tab1, tab2, tab3 = st.tabs(['عرض المستخدمين', 'إضافة مستخدم', 'تعديل/حظر'])
+
+    # View Users
     with tab1:
         df_users = pd.DataFrame.from_dict(credentials['usernames'], orient='index')
-        display = df_users[['name','email','phone','branch_code','branch_name','role','is_active']]
-        display.index.name = 'username'
-        st.dataframe(display)
+        df_users.index.name = 'username'
+        st.dataframe(df_users[['name','email','phone','branch_code','branch_name','role','is_active']])
+
+    # Add User
     with tab2:
         st.subheader('إضافة مستخدم جديد')
         with st.form('add_form'):
@@ -146,18 +153,18 @@ if section == '👥 إدارة المستخدمين':
             bc = st.text_input('كود الفرع')
             bn = st.text_input('اسم الفرع')
             pwd = st.text_input('كلمة المرور', type='password')
-            is_act = st.checkbox('مفعل', value=True)
-            roles_opt = [ROLES['VIEWER'], ROLES['UPLOADER']]
+            is_act = st.checkbox('مفعل', True)
+            # Role options based on current role
+            opts = [ROLES['VIEWER'], ROLES['UPLOADER']]
             if role == ROLES['DEPT']:
-                roles_opt.append(ROLES['DEPT'])
-            if role == ROLES['ADMIN']:
-                roles_opt = [ROLES['ADMIN'], ROLES['DEPT'], ROLES['UPLOADER'], ROLES['VIEWER']]
-            sel_role = st.selectbox('نوع المستخدم', roles_opt)
+                opts.append(ROLES['DEPT'])
+            elif role == ROLES['ADMIN']:
+                opts = [ROLES['ADMIN'], ROLES['DEPT'], ROLES['UPLOADER'], ROLES['VIEWER']]
+            sel_role = st.selectbox('نوع المستخدم', opts)
+
             if st.form_submit_button('إضافة'):
-                if not u.strip():
-                    st.error('الرجاء إدخال اسم مستخدم')
-                elif u in credentials['usernames']:
-                    st.error('المستخدم موجود بالفعل')
+                if not u.strip() or u in credentials['usernames']:
+                    st.error('اسم المستخدم غير صالح أو موجود مسبقاً')
                 else:
                     credentials['usernames'][u] = {
                         'name': nm, 'email': em, 'phone': ph,
@@ -166,62 +173,62 @@ if section == '👥 إدارة المستخدمين':
                         'password': stauth.Hasher([pwd]).generate()[0]
                     }
                     save_credentials(credentials)
-                    st.success(f'تم إضافة المستخدم {u}')
+                    st.success('تم إضافة المستخدم بنجاح')
+
+    # Edit/Block User
     with tab3:
         st.subheader('تعديل/حظر مستخدم')
         sel = st.selectbox('اختر مستخدم', list(credentials['usernames'].keys()))
         info = credentials['usernames'][sel]
         with st.form('edit_form'):
-            nm2 = st.text_input('الاسم الكامل', value=info['name'])
-            em2 = st.text_input('البريد الإلكتروني', value=info['email'])
-            ph2 = st.text_input('رقم الهاتف', value=info['phone'])
-            bc2 = st.text_input('كود الفرع', value=info['branch_code'])
-            bn2 = st.text_input('اسم الفرع', value=info['branch_name'])
-            is2 = st.checkbox('مفعل', value=info['is_active'])
-            roles_opt2 = [ROLES['VIEWER'], ROLES['UPLOADER']]
-if role == ROLES['ADMIN']:
-    roles_opt2.extend([ROLES['DEPT'], ROLES['ADMIN']])
-elif role == ROLES['DEPT']:
-    roles_opt2.append(ROLES['DEPT'])
-rl2 = st.selectbox('نوع المستخدم', roles_opt2, index=roles_opt2.index(info['role']))
-ch2 = st.checkbox('تغيير كلمة المرور')
-if ch2:
-    npw = st.text_input('كلمة المرور الجديدة', type='password')
-if st.form_submit_button('حفظ'):
-    # Prevent management from modifying admin users
-    if role != ROLES['ADMIN'] and info.get('role') == ROLES['ADMIN']:
-        st.error('🚫 غير مسموح بتعديل مستخدم إدمن')
-    else:
-        info.update({'name': nm2, 'email': em2, 'phone': ph2, 'branch_code': bc2, 'branch_name': bn2, 'role': rl2, 'is_active': is2})
-        if ch2 and npw:
-            info['password'] = stauth.Hasher([npw]).generate()[0]
-        credentials['usernames'][sel] = info
-        save_credentials(credentials)
-        st.success('تم تحديث بيانات المستخدم')
-                st.success('تم تحديث بيانات المستخدم')
+            nm2 = st.text_input('الاسم الكامل', info['name'])
+            em2 = st.text_input('البريد الإلكتروني', info['email'])
+            ph2 = st.text_input('رقم الهاتف', info['phone'])
+            bc2 = st.text_input('كود الفرع', info['branch_code'])
+            bn2 = st.text_input('اسم الفرع', info['branch_name'])
+            is2 = st.checkbox('مفعل', info['is_active'])
+            # Role options
+            roles_opt = [ROLES['VIEWER'], ROLES['UPLOADER']]
+            if role == ROLES['ADMIN']:
+                roles_opt.extend([ROLES['DEPT'], ROLES['ADMIN']])
+            elif role == ROLES['DEPT']:
+                roles_opt.append(ROLES['DEPT'])
+            rl2 = st.selectbox('نوع المستخدم', roles_opt, index=roles_opt.index(info['role']))
+            ch2 = st.checkbox('تغيير كلمة المرور')
+            npw = None
+            if ch2:
+                npw = st.text_input('كلمة المرور الجديدة', type='password')
 
-# --- Upload Cards Data ---
+            if st.form_submit_button('حفظ'):
+                # Prevent management from modifying admin
+                if role != ROLES['ADMIN'] and info['role'] == ROLES['ADMIN']:
+                    st.error('🚫 غير مسموح بتعديل مستخدم إدمن')
+                else:
+                    info.update({'name': nm2, 'email': em2, 'phone': ph2, 'branch_code': bc2, 'branch_name': bn2, 'role': rl2, 'is_active': is2})
+                    if ch2 and npw:
+                        info['password'] = stauth.Hasher([npw]).generate()[0]
+                    save_credentials(credentials)
+                    st.success('تم تحديث بيانات المستخدم بنجاح')
+
+# Upload Cards Data
 elif section == '📁 رفع بيانات البطاقات':
     st.header('📁 رفع بيانات البطاقات')
     if role in [ROLES['ADMIN'], ROLES['DEPT'], ROLES['UPLOADER']]:
         uploaded_file = st.file_uploader('اختر ملف CSV أو XLSX', type=['csv', 'xlsx'])
         if uploaded_file:
-            try:
-                df_new = import_master_data(uploaded_file)
-                st.subheader('معاينة البيانات المضافة')
-                st.dataframe(df_new)
-            except Exception as e:
-                st.error(f'❌ خطأ أثناء الاستيراد: {e}')
+            df_new = import_master_data(uploaded_file)
+            st.subheader('معاينة البيانات المضافة')
+            st.dataframe(df_new)
     else:
-        st.warning('🚫 لا تمتلك صلاحية لرفع الملفات.')
+        st.warning('🚫 لا تمتلك صلاحية رفع الملفات')
 
-# --- Reports & Search ---
+# Reports & Search
 elif section == '📊 التقارير والبحث':
     st.header('📊 التقارير والبحث')
     if os.path.exists(MASTER_FILE):
         df = pd.read_excel(MASTER_FILE, dtype=str)
         df['Issuance Date'] = pd.to_datetime(df['Issuance Date'], dayfirst=True, errors='coerce')
-        df = df.drop_duplicates(subset=['Unmasked Card Number', 'Account Number', 'Delivery Branch Code', 'Issuance Date'])
+        df = df.drop_duplicates(subset=['Unmasked Card Number','Account Number','Delivery Branch Code','Issuance Date'])
         term = st.text_input('🔍 بحث')
         if term:
             df = df[df['Unmasked Card Number'].str.contains(term, na=False) | df['Account Number'].str.contains(term, na=False)]
