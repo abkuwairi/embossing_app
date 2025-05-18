@@ -30,33 +30,18 @@ def load_credentials():
     default = {
         'usernames': {
             'admin_user': {
-                'name': 'Admin',
-                'password': None,
-                'email': 'admin@example.com',
-                'phone': '',
-                'branch_code': '',
-                'branch_name': '',
-                'is_active': True,
+                'name': 'Admin', 'password': None, 'email': 'admin@example.com',
+                'phone': '', 'branch_code': '', 'branch_name': '', 'is_active': True,
                 'role': ROLES['ADMIN'],
             },
             'branch101': {
-                'name': 'Branch101',
-                'password': None,
-                'email': '',
-                'phone': '',
-                'branch_code': '101',
-                'branch_name': 'Branch 101',
-                'is_active': True,
+                'name': 'Branch101', 'password': None, 'email': '', 'phone': '',
+                'branch_code': '101', 'branch_name': 'Branch 101', 'is_active': True,
                 'role': ROLES['VIEWER'],
             },
             'branch102': {
-                'name': 'Branch102',
-                'password': None,
-                'email': '',
-                'phone': '',
-                'branch_code': '102',
-                'branch_name': 'Branch 102',
-                'is_active': True,
+                'name': 'Branch102', 'password': None, 'email': '', 'phone': '',
+                'branch_code': '102', 'branch_name': 'Branch 102', 'is_active': True,
                 'role': ROLES['VIEWER'],
             },
         }
@@ -144,19 +129,27 @@ else:
         st.header('📊 التقارير والبحث')
         if os.path.exists(MASTER_FILE):
             df = pd.read_excel(MASTER_FILE, dtype=str)
+            # Remove duplicates
+            df = df.drop_duplicates(subset=['Unmasked Card Number', 'Account Number', 'Issuance Date', 'Delivery Branch Code'])
             df['Issuance Date'] = pd.to_datetime(df['Issuance Date'], dayfirst=True, errors='coerce')
+
             term = st.text_input('🔍 بحث')
             if term:
                 mask = df['Unmasked Card Number'].str.contains(term, na=False) | df['Account Number'].str.contains(term, na=False)
                 df = df[mask]
+
+            # Date range filter
             if not df['Issuance Date'].isna().all():
                 mn = df['Issuance Date'].min().date()
                 mx = df['Issuance Date'].max().date()
                 start = st.date_input('من', mn, mn, mx)
                 end   = st.date_input('إلى', mx, mn, mx)
                 df = df[(df['Issuance Date'].dt.date >= start) & (df['Issuance Date'].dt.date <= end)]
-            if role == ROLES['VIEWER']:
+
+            # Branch-level filter for viewer
+            if role == ROLES['VIEWER'] and branch:
                 df = df[df['Delivery Branch Code'] == branch]
+
             if df.empty:
                 st.warning('❗ لا توجد نتائج')
             else:
@@ -165,4 +158,11 @@ else:
                     buffer = io.BytesIO()
                     df.to_excel(buffer, index=False)
                     buffer.seek(0)
-                    st.download_button('⬇️ تحميل النتائج', buffer, 'results.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                    st.download_button(
+                        '⬇️ تحميل النتائج',
+                        buffer,
+                        'results.xlsx',
+                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                    )
+        else:
+            st.info('ℹ️ لا توجد بيانات بعد')
