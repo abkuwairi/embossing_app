@@ -167,7 +167,7 @@ else:
                         st.success('تم تحديث بيانات المستخدم')
 
     # --- Card Upload Section ---
-    elif selection == '📁 رفع بيانات البطاكات':
+    elif selection == '📁 رفع بيانات البطاقات':
         st.header('📁 رفع بيانات البطاقات')
         if role in [ROLES['ADMIN'], ROLES['DEPT'], ROLES['UPLOADER']]:
             uploaded = st.file_uploader('اختر ملف CSV أو XLSX', type=['csv', 'xlsx'])
