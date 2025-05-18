@@ -106,8 +106,7 @@ else:
     # إدارة المستخدمين
     if choice == '👥 إدارة المستخدمين':
         st.header('👥 إدارة المستخدمين')
-        tabs = st.tabs(['عرض', 'إضافة', 'تعديل'])
-        # ... existing user management code ...
+        # user management code here...
 
     # رفع البيانات
     elif choice == '📁 رفع بيانات البطاقات':
@@ -129,9 +128,10 @@ else:
         st.header('📊 التقارير والبحث')
         if os.path.exists(MASTER_FILE):
             df = pd.read_excel(MASTER_FILE, dtype=str)
-            # Remove duplicates
-            df = df.drop_duplicates(subset=['Unmasked Card Number', 'Account Number', 'Issuance Date', 'Delivery Branch Code'])
+            # Convert dates first
             df['Issuance Date'] = pd.to_datetime(df['Issuance Date'], dayfirst=True, errors='coerce')
+            # Remove exact duplicates but keep those with different dates
+            df = df.drop_duplicates(subset=['Unmasked Card Number', 'Account Number', 'Delivery Branch Code', 'Issuance Date'])
 
             term = st.text_input('🔍 بحث')
             if term:
