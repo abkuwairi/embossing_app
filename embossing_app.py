@@ -179,18 +179,25 @@ if section == '👥 إدارة المستخدمين':
             bn2 = st.text_input('اسم الفرع', value=info['branch_name'])
             is2 = st.checkbox('مفعل', value=info['is_active'])
             roles_opt2 = [ROLES['VIEWER'], ROLES['UPLOADER']]
-            if role in [ROLES['DEPT'], ROLES['ADMIN']]:
-                roles_opt2.extend([ROLES['DEPT'], ROLES['ADMIN']])
-            rl2 = st.selectbox('نوع المستخدم', roles_opt2, index=roles_opt2.index(info['role']))
-            ch2 = st.checkbox('تغيير كلمة المرور')
-            if ch2:
-                npw = st.text_input('كلمة المرور الجديدة', type='password')
-            if st.form_submit_button('حفظ'):
-                info.update({'name': nm2, 'email': em2, 'phone': ph2, 'branch_code': bc2, 'branch_name': bn2, 'role': rl2, 'is_active': is2})
-                if ch2 and npw:
-                    info['password'] = stauth.Hasher([npw]).generate()[0]
-                credentials['usernames'][sel] = info
-                save_credentials(credentials)
+if role == ROLES['ADMIN']:
+    roles_opt2.extend([ROLES['DEPT'], ROLES['ADMIN']])
+elif role == ROLES['DEPT']:
+    roles_opt2.append(ROLES['DEPT'])
+rl2 = st.selectbox('نوع المستخدم', roles_opt2, index=roles_opt2.index(info['role']))
+ch2 = st.checkbox('تغيير كلمة المرور')
+if ch2:
+    npw = st.text_input('كلمة المرور الجديدة', type='password')
+if st.form_submit_button('حفظ'):
+    # Prevent management from modifying admin users
+    if role != ROLES['ADMIN'] and info.get('role') == ROLES['ADMIN']:
+        st.error('🚫 غير مسموح بتعديل مستخدم إدمن')
+    else:
+        info.update({'name': nm2, 'email': em2, 'phone': ph2, 'branch_code': bc2, 'branch_name': bn2, 'role': rl2, 'is_active': is2})
+        if ch2 and npw:
+            info['password'] = stauth.Hasher([npw]).generate()[0]
+        credentials['usernames'][sel] = info
+        save_credentials(credentials)
+        st.success('تم تحديث بيانات المستخدم')
                 st.success('تم تحديث بيانات المستخدم')
 
 # --- Upload Cards Data ---
